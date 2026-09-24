@@ -20,38 +20,6 @@ ATTACK PATH
 EXECUTION PAYLOAD
 ```
 
-## Example
-
-```text
-┌─ NETWEAVE CORE INTELLIGENCE CORRELATION ──────────────────────────────┐
-│                                                                       │
-│  TARGET     45.33.32.156                                             │
-│  SERVICES   HTTP :80   SSH :22                                       │
-│                                                                       │
-│  DISCOVERY                                                           │
-│  ├─ HTTP headers collected                                           │
-│  ├─ SSH service identified                                           │
-│  └─ Exposed attack surface indexed                                   │
-│                                                                       │
-│  CORRELATION                                                         │
-│  ├─ HTTP service → header analysis                                   │
-│  └─ SSH service → authentication testing                            │
-│                                                                       │
-│  ATTACK PATH                                                         │
-│  ├─ http reconnaissance                                              │
-│  └─ ssh authentication assessment                                    │
-│                                                                       │
-│  OUTPUT                                                              │
-│  ├─ Report generated                                                 │
-│  └─ Execution payload generated                                      │
-│                                                                       │
-└───────────────────────────────────────────────────────────────────────┘
-
-[+] Intelligence correlation complete
-[+] Report saved
-[+] Execution workflow generated
-```
-
 The result is a structured path from discovered infrastructure to the relevant testing workflow instead of a wall of disconnected reconnaissance output.
 
 ## Deployment
