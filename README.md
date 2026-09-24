@@ -1,43 +1,105 @@
 # NetWeave v6.5
 
-A localized network reconnaissance framework and automated attack chain generator designed for cybersecurity audit verification and capture the flag environments.
+Localized network reconnaissance and security-audit framework for authorized testing, CTFs and lab environments.
 
-## Core Capabilities
+## Requirements
 
-The architecture performs automated service discovery by executing low level TCP socket connections against target infrastructure. It queries common operational ports to harvest application banners and software version signatures, including OpenSSH, Apache, and Nginx. 
+- Linux
+- Python 3.10+
+- Ollama
+- `deepseek-r1:8b`
 
-The web assessment module extracts hidden HTML source artifacts, parses comment blocks, and audits directory configurations to locate restricted administrative endpoints, repository leaks, and system path responses based on HTTP status codes.
+## Installation
 
-Telemetry harvested during execution is parsed through a localized relational database engine to correlate host exposure and isolate high probability attack vectors. Validated command structures are extracted, modified to match host operating system abstractions, and compiled into an independent executable script file for fast deployment.
+Clone the repository:
 
-## Deployment Instructions
-
-System requirements include Python 3.10 or newer and a synchronized local data engine node active on port 11434.
-
-Clone the framework configuration to the target workspace:
 ```bash
 git clone https://github.com/danielissaq/NetWeave.git
 cd NetWeave
 ```
 
-Initialize the background database layer:
+Create the Python environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Ollama
+
+Install Ollama if you don't already have it:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Start Ollama in a separate terminal:
+
 ```bash
 ollama serve
 ```
 
-Execute the core automation loop:
+Then, in the NetWeave terminal, download the model:
+
 ```bash
+ollama pull deepseek-r1:8b
+```
+
+Verify:
+
+```bash
+ollama list
+```
+
+You should see:
+
+```text
+deepseek-r1:8b
+```
+
+## Run
+
+With Ollama running in the other terminal:
+
+```bash
+cd NetWeave
+source .venv/bin/activate
 python pwn_recon.py
 ```
 
-## Operational Sequence
+NetWeave connects to the local Ollama API at:
 
-The user defines the destination host target parameters.
+```text
+http://127.0.0.1:11434
+```
 
-NetWeave maps open network sockets, harvests software signatures, and feeds the output directly into the offline correlation matrix.
+## Quick Setup
 
-The analytical engine structures a prioritized execution strategy, isolating specific terminal syntax, targeted curl commands, and session configurations.
+After Ollama is installed, the normal workflow is simply:
 
-An automated execution script named fire payloads IP.ps1 is cached directly to the active directory workspace, allowing immediate multi terminal payload deployment.
+**Terminal 1**
+```bash
+ollama serve
+```
 
-Legal Notice: This asset is built strictly for authorized white hat infrastructure mapping, academic network testing environments, and isolated laboratory verification.
+**Terminal 2**
+```bash
+git clone https://github.com/danielissaq/NetWeave.git
+cd NetWeave
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+ollama pull deepseek-r1:8b
+python pwn_recon.py
+```
+
+## Legal Notice
+
+NetWeave is intended only for authorized security testing, CTFs, academic research and isolated laboratory environments. Only scan or assess systems you own or have explicit permission to test.
