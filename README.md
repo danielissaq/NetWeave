@@ -24,14 +24,14 @@ NetWeave maps exposed services, collects host and web information, correlates th
 
 ## Deployment
 
-### 1. Clone and enter NetWeave
+### 1. Clone NetWeave
 
 ```bash
 git clone https://github.com/danielissaq/NetWeave.git
 cd NetWeave
 ```
 
-### 2. Create the Python environment
+### 2. Set up Python
 
 ```bash
 python3 -m venv .venv
@@ -40,7 +40,22 @@ python -m pip install --upgrade pip
 python -m pip install requests
 ```
 
-### 3. Install and verify Ollama
+### 3. Install PowerShell
+
+NetWeave generates PowerShell execution payloads. On Kali Linux:
+
+```bash
+sudo apt update
+sudo apt install -y powershell
+```
+
+Verify the installation:
+
+```bash
+pwsh --version
+```
+
+### 4. Install Ollama
 
 If Ollama is not already installed:
 
@@ -54,25 +69,25 @@ Verify the installation:
 ollama --version
 ```
 
-### 4. Start the local Ollama server
+### 5. Start Ollama
 
-Open a **second terminal** and run:
+Open a second terminal and run:
 
 ```bash
 ollama serve
 ```
 
-Keep this terminal open.
+Keep this terminal running.
 
-The Ollama server should listen on:
+NetWeave uses the local Ollama service at:
 
 ```text
 http://127.0.0.1:11434
 ```
 
-### 5. Return to the NetWeave terminal
+### 6. Prepare the model
 
-In the first terminal:
+Return to the first terminal and enter the NetWeave directory:
 
 ```bash
 cd NetWeave
@@ -85,47 +100,49 @@ Pull the required model:
 ollama pull deepseek-r1:8b
 ```
 
-Verify that it is installed:
+Verify that the model is available:
 
 ```bash
 ollama list
 ```
 
-### 6. Start NetWeave
+You should see:
 
-With Ollama still running in the second terminal, return to the first terminal and run:
+```text
+deepseek-r1:8b
+```
+
+### 7. Launch NetWeave
+
+With Ollama still running in the second terminal:
 
 ```bash
 python pwn_recon.py
 ```
 
-NetWeave will connect to the local Ollama service at:
-
-```text
-http://127.0.0.1:11434
-```
+NetWeave will connect to the local Ollama service and begin the workflow.
 
 ## Generated Payload
 
-After the reconnaissance workflow completes, NetWeave generates a PowerShell execution payload:
+After the workflow completes, NetWeave generates a PowerShell execution payload:
 
 ```text
 fire_payloads_<target>.ps1
 ```
 
-The payload is saved in the NetWeave working directory.
+The generated payload is saved in the NetWeave working directory.
 
-### Linux
+### Execute on Linux
 
-If PowerShell 7 is installed:
+PowerShell 7 is already installed during deployment. Run the generated payload with:
 
 ```bash
 pwsh ./fire_payloads_<target>.ps1
 ```
 
-### Windows
+### Execute on Windows
 
-Open PowerShell and enter the NetWeave directory:
+Open PowerShell and navigate to the NetWeave directory:
 
 ```powershell
 cd C:\path\to\NetWeave
@@ -151,7 +168,7 @@ Review generated commands before execution and only use NetWeave against systems
 Python 3.10+
 Ollama
 DeepSeek R1 8B
-PowerShell 7 for generated .ps1 payloads
+PowerShell 7
 ```
 
 ## Legal Notice
