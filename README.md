@@ -1,44 +1,48 @@
 # NetWeave v6.5
 
-Localized network reconnaissance framework for authorized security testing, CTFs and laboratory environments.
-
 ## Deployment
 
-Clone the repository:
+### 1. Clone
 
 ```bash
 git clone https://github.com/danielissaq/NetWeave.git
 cd NetWeave
 ```
 
-Create and activate the Python environment:
+### 2. Setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install requests
 ```
 
-Install Ollama if it is not already installed:
+### 3. Install Ollama
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-Open a **new terminal tab** and start the local Ollama server:
+### 4. Start the local engine
+
+Open a new terminal tab:
 
 ```bash
 ollama serve
 ```
 
-Leave `ollama serve` running.
+Leave it running.
 
-Return to the NetWeave terminal and download the required model:
+### 5. Pull the model
+
+Back in the NetWeave terminal:
 
 ```bash
 ollama pull deepseek-r1:8b
 ```
 
-Verify that the model is installed:
+Check that it is installed:
 
 ```bash
 ollama list
@@ -50,29 +54,28 @@ You should see:
 deepseek-r1:8b
 ```
 
-Then start NetWeave:
+### 6. Launch NetWeave
 
 ```bash
-cd NetWeave
 source .venv/bin/activate
 python pwn_recon.py
 ```
 
-NetWeave uses the local Ollama API:
+NetWeave connects locally through:
 
 ```text
 http://127.0.0.1:11434
 ```
 
-### Terminal layout
+## Terminal Setup
 
-**Terminal 1:**
+Terminal 1
 
 ```bash
 ollama serve
 ```
 
-**Terminal 2:**
+Terminal 2
 
 ```bash
 cd NetWeave
@@ -80,8 +83,10 @@ source .venv/bin/activate
 python pwn_recon.py
 ```
 
-That's it. Ollama must remain running in Terminal 1 while NetWeave is running in Terminal 2.
+If you are already inside the NetWeave directory, do not run `cd NetWeave` again.
 
 ## Legal Notice
 
-NetWeave is intended for authorized security testing, CTFs, academic research and isolated laboratory environments. Only assess systems you own or have explicit permission to test.
+NetWeave is built for authorized security testing, CTFs and isolated laboratory environments.
+
+Only use it against systems you own or have explicit permission to test.
