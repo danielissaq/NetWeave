@@ -24,14 +24,14 @@ NetWeave maps exposed services, collects host and web information, correlates th
 
 ## Deployment
 
-Clone the repository:
+### 1. Clone and enter NetWeave
 
 ```bash
 git clone https://github.com/danielissaq/NetWeave.git
 cd NetWeave
 ```
 
-Create the Python environment and install the required dependency:
+### 2. Create the Python environment
 
 ```bash
 python3 -m venv .venv
@@ -40,35 +40,66 @@ python -m pip install --upgrade pip
 python -m pip install requests
 ```
 
-Install Ollama if it is not already installed:
+### 3. Install and verify Ollama
+
+If Ollama is not already installed:
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-Open a new terminal and start Ollama:
+Verify the installation:
+
+```bash
+ollama --version
+```
+
+### 4. Start the local Ollama server
+
+Open a **second terminal** and run:
 
 ```bash
 ollama serve
 ```
 
-Leave Ollama running.
+Keep this terminal open.
 
-Return to the NetWeave terminal:
+The Ollama server should listen on:
+
+```text
+http://127.0.0.1:11434
+```
+
+### 5. Return to the NetWeave terminal
+
+In the first terminal:
 
 ```bash
 cd NetWeave
 source .venv/bin/activate
+```
+
+Pull the required model:
+
+```bash
 ollama pull deepseek-r1:8b
 ```
 
-Start NetWeave:
+Verify that it is installed:
+
+```bash
+ollama list
+```
+
+### 6. Start NetWeave
+
+With Ollama still running in the second terminal, return to the first terminal and run:
 
 ```bash
 python pwn_recon.py
 ```
 
-NetWeave connects to the local Ollama service at:
+NetWeave will connect to the local Ollama service at:
 
 ```text
 http://127.0.0.1:11434
@@ -76,25 +107,43 @@ http://127.0.0.1:11434
 
 ## Generated Payload
 
-NetWeave generates a PowerShell execution payload from the resulting workflow:
+After the reconnaissance workflow completes, NetWeave generates a PowerShell execution payload:
 
 ```text
 fire_payloads_<target>.ps1
 ```
 
-On Linux with PowerShell 7:
+The payload is saved in the NetWeave working directory.
+
+### Linux
+
+If PowerShell 7 is installed:
 
 ```bash
 pwsh ./fire_payloads_<target>.ps1
 ```
 
-On Windows PowerShell:
+### Windows
+
+Open PowerShell and enter the NetWeave directory:
+
+```powershell
+cd C:\path\to\NetWeave
+```
+
+Find the generated payload:
+
+```powershell
+dir fire_payloads_*.ps1
+```
+
+Run the generated payload:
 
 ```powershell
 .\fire_payloads_<target>.ps1
 ```
 
-Review generated commands before execution.
+Review generated commands before execution and only use NetWeave against systems you own or have explicit permission to test.
 
 ## Requirements
 
