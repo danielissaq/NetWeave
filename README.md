@@ -1,18 +1,58 @@
 # NetWeave v6.5
 
-NetWeave is a local reconnaissance and security testing framework built for CTFs, labs and authorized assessments.
+**NetWeave** is a local reconnaissance and security testing framework for CTFs, labs and authorized assessments.
 
-It takes reconnaissance data, correlates the findings and turns them into a clear attack path with generated commands and an execution payload.
+Turn raw reconnaissance into a correlated attack path and a ready execution workflow.
 
 ```text
-RECON
-  ↓
+TARGET
+  │
+  ▼
+RECONNAISSANCE
+  │
+  ▼
 CORRELATION
-  ↓
+  │
+  ▼
 ATTACK PATH
-  ↓
-PAYLOAD
+  │
+  ▼
+EXECUTION PAYLOAD
 ```
+
+## Example
+
+```text
+┌─ NETWEAVE CORE INTELLIGENCE CORRELATION ──────────────────────────────┐
+│                                                                       │
+│  TARGET     45.33.32.156                                             │
+│  SERVICES   HTTP :80   SSH :22                                       │
+│                                                                       │
+│  DISCOVERY                                                           │
+│  ├─ HTTP headers collected                                           │
+│  ├─ SSH service identified                                           │
+│  └─ Exposed attack surface indexed                                   │
+│                                                                       │
+│  CORRELATION                                                         │
+│  ├─ HTTP service → header analysis                                   │
+│  └─ SSH service → authentication testing                            │
+│                                                                       │
+│  ATTACK PATH                                                         │
+│  ├─ http reconnaissance                                              │
+│  └─ ssh authentication assessment                                    │
+│                                                                       │
+│  OUTPUT                                                              │
+│  ├─ Report generated                                                 │
+│  └─ Execution payload generated                                      │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+[+] Intelligence correlation complete
+[+] Report saved
+[+] Execution workflow generated
+```
+
+The result is a structured path from discovered infrastructure to the relevant testing workflow instead of a wall of disconnected reconnaissance output.
 
 ## Deployment
 
@@ -23,7 +63,7 @@ git clone https://github.com/danielissaq/NetWeave.git
 cd NetWeave
 ```
 
-Set up Python:
+Create the Python environment:
 
 ```bash
 python3 -m venv .venv
@@ -31,46 +71,46 @@ source .venv/bin/activate
 python -m pip install requests
 ```
 
-Open a new terminal and start Ollama:
+Start Ollama in a new terminal:
 
 ```bash
 ollama serve
 ```
 
-Back in the NetWeave terminal:
+Return to NetWeave and pull the required model:
 
 ```bash
 ollama pull deepseek-r1:8b
+```
+
+Then launch:
+
+```bash
 python pwn_recon.py
 ```
 
-NetWeave uses the local Ollama service at:
+NetWeave connects to the local Ollama service at:
 
 ```text
 http://127.0.0.1:11434
 ```
 
-## What You Get
-
-NetWeave processes discovered services and web information into actionable output instead of leaving you with pages of raw reconnaissance.
-
-Example:
+## Terminal Layout
 
 ```text
-NETWEAVE CORE INTELLIGENCE CORRELATION
+TERMINAL 1
+$ ollama serve
 
-1. nmap ...
-2. nmap ...
-3. ...
-
-[+] Operational data cached
-[+] Execution payload created
+TERMINAL 2
+$ cd NetWeave
+$ source .venv/bin/activate
+$ python pwn_recon.py
 ```
 
-The generated files contain the resulting commands and execution workflow for review.
+If you are already inside the NetWeave directory, do not run `cd NetWeave` again.
 
 ## Legal Notice
 
-Built for CTFs, security research, authorized assessments and isolated lab environments.
+NetWeave is intended for CTFs, security research, authorized assessments and isolated laboratory environments.
 
-Only use NetWeave against systems you own or have explicit permission to test.
+Only use it against systems you own or have explicit permission to test.
