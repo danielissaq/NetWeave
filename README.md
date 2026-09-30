@@ -26,7 +26,7 @@ NetWeave maps exposed services, collects host and web information, correlates fi
 
 * **Council of Wizards:** Multiple AI models vote on the best attack vector.
 * **Multi-Format Payloads:** Generates PowerShell (`.ps1`), Bash (`.sh`), Python (`.py`), and JSON summaries.
-* **Intelligent Fallbacks:** Built-in attack patterns when AI models are unavailable.
+* **Intelligent Fallbacks:** Builtin attack patterns when AI models are unavailable.
 * **Web Scanning:** Automated Gobuster and Nikto framework integration.
 * **Parallel Processing:** Concurrent AI model queries to optimize speed.
 * **Enhanced Error Handling:** Improved logging mechanisms and clearer error messages.
