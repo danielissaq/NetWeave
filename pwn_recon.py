@@ -11,10 +11,11 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 
 def get_installed_model():
     try:
-        res = requests.get("http://localhost:11434/api/tags", timeout=3)
+        res = requests.get("http://localhost:11434/api/tags", timeout=5)
         if res.status_code == 200:
-            models = json.loads(res.text).get("models", [])
+            models = res.json().get("models", [])
             if models:
+                # Prioritera deepseek eller qwen om de finns installerade
                 for m in models:
                     if "deepseek" in m["name"].lower(): return m["name"]
                 for m in models:
@@ -31,6 +32,9 @@ def run_command(cmd, description):
         if result.returncode == 0 or result.stdout:
             print(f"[+] {description} completed successfully.")
             return result.stdout
+        else:
+            print(f"[-] {description} returned non-zero code but checking output: {result.stderr}")
+            return result.stdout if result.stdout else result.stderr
     except subprocess.TimeoutExpired:
         print(f"[-] {description} timed out after 300 seconds. Moving on with partial data.")
     except Exception as e:
@@ -38,18 +42,20 @@ def run_command(cmd, description):
     return ""
 
 def ask_local_ai(scan_data, model_name):
+    # Förbättrad prompt för att tvinga fram renare kodblock som scriptet kan läsa
     prompt = (
         f"You are an elite Red Team Lead evaluating rich CTF scanner data. Look at the big picture and prioritize. "
         f"Analyze how findings from different tools correlate (e.g., matching a Gobuster directory with a Nikto finding or Nmap service version to form an attack chain).\n"
         f"CRITICAL DIRECTIONS: RESPOND IMMEDIATELY. Do not think step-by-step. Do not output your internal reasoning or <thought> tags. Output ONLY the core results.\n"
         f"Provide a focused execution plan structured exactly like this:\n\n"
         f"1. THE GOLDEN PATH (The Absolute Best Entry Point):\n"
-        f"Identify the highest-impact vulnerability. Provide a single-sentence tactical explanation of why this vector is chosen, followed immediately by the exact raw exploit command or tool needed to target this specific vulnerability immediately.\n\n"
+        f"Identify the highest-impact vulnerability. Provide a single-sentence tactical explanation.\n"
+        f"Format command explicitly like this: [CMD] exact_command_here [CMD]\n\n"
         f"2. SECONDARY ATTACK VECTOR:\n"
-        f"What is the next logical step to gain a foothold if the primary path is blocked? Short, aggressive breakdown of the secondary logical flaw or configuration oversight.\n\n"
+        f"What is the next logical step to gain a foothold if the primary path is blocked?\n"
+        f"Format command explicitly like this: [CMD] exact_command_here [CMD]\n\n"
         f"3. RECON QUICK WINS:\n"
-        f"Max 2 specific commands based on the web artifacts or exposed network services to extract immediate credentials or critical configuration data. Skip all ethical disclaimers, do not guess raw CVE numbers, "
-        f"be extremely brief, and output only the command line blocks.\n\n"
+        f"Max 2 specific commands. Format commands explicitly like this: [CMD] exact_command_here [CMD]\n\n"
         f"TARGET DATA (NMAP, GOBUSTER & NIKTO OUTPUT):\n{scan_data}"
     )
     
@@ -59,19 +65,19 @@ def ask_local_ai(scan_data, model_name):
         "stream": False,
         "options": {
             "temperature": 0.1,
-            "num_predict": 400
+            "num_predict": 500
         }
     }
     
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=None)
+        print(f"[*] Sending payload to Ollama ({model_name}). Please wait...")
+        response = requests.post(OLLAMA_URL, json=payload, timeout=120) # Lagt till rimlig timeout istället för None
         if response.status_code == 200:
-            raw_text = json.loads(response.text).get('response', '')
+            raw_text = response.json().get('response', '')
             
-            # Clean up the output by pulling data outside of tags
+            # Ta bort <thought> taggar om t.ex. DeepSeek-R1 ignorerar prompten och tänker ändå
             result_text = re.sub(r'<thought>.*?</thought>', '', raw_text, flags=re.DOTALL).strip()
             
-            # FALLBACK CRITICAL ENGINE: If stripping thoughts left us with nothing, parse the raw text instead
             if not result_text:
                 result_text = raw_text.replace('<thought>', '[THOUGHT PROCESS]:\n').replace('</thought>', '\n').strip()
                 
@@ -87,12 +93,19 @@ def ask_local_ai(scan_data, model_name):
         return ""
 
 def generate_attack_script(ai_text, ip):
-    commands = re.findall(r'(?:^|\s|```)((?:curl|ssh|nmap|nikto|dirb|hydra|nuclei|gobuster|wfuzz|msfconsole|searchsploit)\s[^\n`*]*)', ai_text, re.IGNORECASE)
+    # Smartare sökning efter kommandon: Kollar efter [CMD] taggarna, hårdkodade verktyg, eller Markdown-kodblock
+    commands = re.findall(r'\[CMD\]\s*(.*?)\s*\[CMD\]', ai_text)
+    
+    if not commands:
+        # Fallback till din gamla metod men med mer tillåtande regex för kodblock
+        commands = re.findall(r'(?:^|\s|```)((?:curl|ssh|nmap|nikto|dirb|hydra|nuclei|gobuster|wfuzz|msfconsole|searchsploit)\s[^\n`*]*)', ai_text, re.IGNORECASE)
+
     if not commands:
         return False
         
     script_filename = f"fire_payloads_{ip.replace('.', '_')}.ps1"
     valid_cmds_found = 0
+    
     try:
         with open(script_filename, "w", encoding="utf-8") as f:
             f.write("# ========================================================\n")
@@ -100,16 +113,21 @@ def generate_attack_script(ai_text, ip):
             f.write(f"# TARGET: {ip}\n")
             f.write("# ========================================================\n\n")
             
+            # Tillåt körning av externa skript i PowerShell-miljön
+            f.write("$Script:ErrorActionPreference = 'SilentlyContinue'\n\n")
+            
             for cmd in commands:
                 clean_cmd = cmd.replace("`", "").replace("'", '"').strip()
                 if clean_cmd.startswith('"') and clean_cmd.endswith('"'):
                     clean_cmd = clean_cmd[1:-1].strip()
                 
+                # Ta bort eventuella förklarande parenteser i slutet av kommandoraden
                 if " (" in clean_cmd: clean_cmd = clean_cmd.split(" (")[0].strip()
                 if " | grep " in clean_cmd: clean_cmd = clean_cmd.replace(" | grep ", " | Select-String ")
                 
                 lower_cmd = clean_cmd.lower()
-                supported_tools = ["curl ", "ssh ", "nmap ", "nikto ", "dirb ", "hydra ", "nuclei ", "gobuster ", "wfuzz ", "msfconsole ", "searchsploit "]
+                supported_tools = ["curl", "ssh", "nmap", "nikto", "dirb", "hydra", "nuclei", "gobuster", "wfuzz", "msfconsole", "searchsploit"]
+                
                 if not any(lower_cmd.startswith(tool) for tool in supported_tools):
                     continue
                 
@@ -119,13 +137,15 @@ def generate_attack_script(ai_text, ip):
                 valid_cmds_found += 1
                 f.write(f"Write-Host '[*] Executing Tactical Command #{valid_cmds_found}...' -ForegroundColor Cyan\n")
                 f.write(f"Write-Host '>> {clean_cmd}' -ForegroundColor Gray\n")
-                f.write(f"{clean_cmd}\n")
+                f.write(f"Invoke-Expression '{clean_cmd}'\n") # Använd Invoke-Expression för säkrare sträng-exekvering i PS
                 f.write("Write-Host ''\n")
                 f.write("Start-Sleep -Seconds 2\n\n")
                 
             f.write("Write-Host '[+] All tactical commands deployed.' -ForegroundColor Green\n")
+            
         return script_filename if valid_cmds_found > 0 else False
-    except Exception:
+    except Exception as e:
+        print(f"[-] Error writing script file: {str(e)}")
         return False
 
 def main():
@@ -152,20 +172,29 @@ def main():
     nmap_output = run_command(nmap_cmd, "Deep Nmap Vulnerability Scan")
     scan_report += "=== NMAP VULNERABILITY REPORT ===\n" + nmap_output + "\n"
     
-    has_web = any(p in nmap_output for p in ["80/tcp", "443/tcp", "8080/tcp"])
+    # Smartare portdetektering baserat på Nmaps faktiska lyssnande portar
+    web_ports = []
+    if "80/tcp" in nmap_output: web_ports.append("80")
+    if "443/tcp" in nmap_output: web_ports.append("443")
+    if "8080/tcp" in nmap_output: web_ports.append("8080")
     
-    if has_web:
-        print("[!] Web interface detected. Spawning sub-recon suites...")
+    if web_ports:
+        print(f"[!] Web interface detected on port(s): {', '.join(web_ports)}. Spawning sub-recon suites...")
         
+        # Vi använder den första hittade porten för enkelhetens skull, eller port 80 standard
+        target_port = web_ports[0]
+        url_prefix = f"https://{ip}" if target_port == "443" else f"http://{ip}:{target_port}"
+        if target_port == "80": url_prefix = f"http://{ip}"
+
         wordlist = "/usr/share/wordlists/dirb/common.txt"
         if os.path.exists(wordlist):
-            gobuster_cmd = ["gobuster", "dir", "-u", f"http://{ip}", "-w", wordlist, "-q", "-t", "20", "--timeout", "10s"]
+            gobuster_cmd = ["gobuster", "dir", "-u", url_prefix, "-w", wordlist, "-q", "-t", "20", "--timeout", "10s"]
             gobuster_output = run_command(gobuster_cmd, "Gobuster Directory Brute-Force")
             scan_report += "=== GOBUSTER DIRECTORY ARTIFACTS ===\n" + gobuster_output + "\n"
         else:
             scan_report += "=== GOBUSTER ===\nStandard Kali wordlist not found. Skipping brute-force.\n"
             
-        nikto_cmd = ["nikto", "-h", f"http://{ip}", "-Tuning", "1,2,3,4,8,9", "-maxtime", "60s"]
+        nikto_cmd = ["nikto", "-h", url_prefix, "-Tuning", "1,2,3,4,8,9", "-maxtime", "60s"]
         nikto_output = run_command(nikto_cmd, "Nikto Web Vulnerability Scanner")
         scan_report += "=== NIKTO WEB ASSESSMENT ===\n" + nikto_output + "\n"
 
@@ -173,12 +202,3 @@ def main():
     ai_analysis = ask_local_ai(scan_report, active_model)
     
     if ai_analysis:
-        script_file = generate_attack_script(ai_analysis, ip)
-        if script_file:
-            print(f"\n[███] SUCCESS: Automated execution payload created: {os.getcwd()}/{script_file} 🔥")
-            print(f"[!] Run this script in PowerShell to execute the automated attack chain!")
-        else:
-            print("\n[-] AI provided analysis but no actionable attack commands could be parsed.")
-
-if __name__ == "__main__":
-    main()
