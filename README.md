@@ -1,24 +1,32 @@
-# NetWeave v7.1
+# NetWeave v8.0 - Council of Wizards Edition
 
-**NetWeave** operates as a local reconnaissance and security testing framework built for CTFs, laboratory environments, and authorized assessments. It transforms raw reconnaissance data into a correlated attack path and a deployable execution workflow.
+**NetWeave** operates as a local reconnaissance and security testing framework built for CTFs, laboratory environments, and authorized assessments. It transforms raw reconnaissance data into a correlated attack path and a deployable execution workflow using an AI-powered "Council of Wizards" for intelligent decision making.
 
 ```text
 TARGET
   │
   ▼
-RECONNAISSANCE
+RECONNAISSANCE (Nmap + Web Scan)
   │
   ▼
-CORRELATION
+COUNCIL DELIBERATION (AI Analysis)
   │
   ▼
-ATTACK PATH
+ATTACK PATH (Voted Commands)
   │
   ▼
-EXECUTION PAYLOAD
+EXECUTION PAYLOADS (Multi-format)
 ```
 
-NetWeave maps exposed services, collects host and web information, correlates findings, and produces a structured testing workflow to replace raw output logs.
+NetWeave maps exposed services, collects host and web information, correlates findings through multiple AI models, and produces structured testing workflows in PowerShell, Bash, and Python formats.
+
+## Key Features v8.0
+
+* **Council of Wizards:** Multiple AI models vote on the best attack vector
+* **Multi-Format Payloads:** Generates PowerShell (`.ps1`), Bash (`.sh`), Python (`.py`), and JSON summary
+* **Intelligent Fallbacks:** Built-in attack patterns when AI is unavailable
+* **Web Scanning:** Automated Gobuster and Nikto integration
+* **Parallel Processing:** Concurrent AI model queries for speed
 
 ## Deployment
 
@@ -36,77 +44,35 @@ python -m pip install --upgrade pip
 python -m pip install requests
 ```
 
-### 3. Install PowerShell
-NetWeave generates PowerShell execution payloads. Run the following on Kali Linux:
+### 3. Install PowerShell (Optional)
+NetWeave generates PowerShell execution payloads among other formats. To execute `.ps1` files on Linux:
+
 ```bash
 sudo apt update
 sudo apt install -y powershell
-```
-
-Verify your installation:
-```bash
 pwsh --version
 ```
 
 ### 4. Install Ollama
-If Ollama is missing from your system, install it directly:
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-```
-
-Verify your installation:
-```bash
 ollama --version
 ```
 
 ### 5. Start Ollama Service
-Open a second terminal tab and execute:
+**Terminal 1:**
 ```bash
 ollama serve
 ```
-Keep this terminal active. NetWeave connects to the local Ollama service at `http://127.0.0.1:11434`.
 
-### 6. Retrieve the Model
-Open a separate terminal tab and pull the required language model:
+### 6. Retrieve Models
+The Council supports multiple models. Pull one or more:
+
 ```bash
+# Recommended - Fast and accurate for CTFs
+ollama pull qwen2.5-coder:7b
+
+# Alternatives
 ollama pull deepseek-r1:8b
+ollama pull llama3.2
 ```
-
-Verify the model is available:
-```bash
-ollama list
-```
-
-### 7. Launch NetWeave
-With Ollama running in the background, execute the core framework script in your active project environment:
-```bash
-python pwn_recon.py
-```
-
-## Generated Payload
-After the workflow completes, NetWeave generates an automated tactical execution payload inside your local working directory:
-```text
-fire_payloads_<target>.ps1
-```
-
-### Execute on Linux
-```bash
-pwsh ./fire_payloads_<target>.ps1
-```
-
-### Execute on Windows
-```powershell
-cd C:\(\path\to\NetWeave .\fire_payloads_<\)target>.ps1
-```
-
-## Next Tactical Step
-Once NetWeave completes its execution loop and isolates the **GOLDEN PATH** attack vector, proceed directly to your exploitation framework to operationalize the findings. Switch to **Sectumsempra v1.0** to compile your reverse shell staging assets and post exploitation scripts tailored to the target environment.
-
-## Requirements
-* Python 3.10 or higher
-* Ollama (DeepSeek R1 8B)
-* PowerShell 7
-* Minimum 8GB RAM recommended for local model execution
-
-## Legal Notice
-NetWeave is strictly intended for CTFs, security research, authorized assessments, and isolated laboratory environments. Only use NetWeave against systems you own or have explicit permission to test.
