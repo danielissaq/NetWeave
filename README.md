@@ -1,6 +1,6 @@
 # NetWeave v7.0
 
-**NetWeave** is a fast local reconnaissance and security testing framework for CTFs, labs and authorized assessments.
+**NetWeave** is a fast local reconnaissance and security testing framework for CTFs, labs, and authorized assessments. 
 
 Turn raw reconnaissance into a correlated attack path and a ready execution workflow.
 
@@ -20,7 +20,7 @@ ATTACK PATH
 EXECUTION PAYLOAD
 ```
 
-NetWeave maps exposed services, collects host and web information, correlates the findings and produces a structured testing workflow instead of a wall of raw reconnaissance output.
+NetWeave maps exposed services, collects host and web information, correlates the findings, and produces a structured testing workflow instead of a wall of raw reconnaissance output.
 
 ## Deployment
 
@@ -62,18 +62,14 @@ ollama --version
 ```
 
 ### 5. Start Ollama
-Open a second terminal and run:
+Open a second terminal tab and run:
 ```bash
 ollama serve
 ```
-Keep this terminal running.
+Keep this terminal running. NetWeave uses the local Ollama service at `http://127.0.0.1:11434`.
 
-NetWeave uses the local Ollama service at:
-```text
-http://127.0.0.1:11434
-```
-
-Pull the required model:
+### 6. Prepare the Model
+Open a separate terminal tab and pull the required model:
 ```bash
 ollama pull deepseek-r1:8b
 ```
@@ -83,59 +79,39 @@ Verify that the model is available:
 ollama list
 ```
 
-You should see:
-```text
-deepseek-r1:8b
-```
-
 ### 7. Launch NetWeave
-With Ollama still running in the second terminal:
+With Ollama still running in the background, run the core framework script in your active project environment tab:
 ```bash
 python pwn_recon.py
 ```
 
-NetWeave will connect to the local Ollama service and begin the workflow.
-
 ## Generated Payload
-After the workflow completes, NetWeave generates a PowerShell execution payload:
+After the workflow completes, NetWeave generates an automated tactical execution payload inside your local working directory:
 ```text
 fire_payloads_<target>.ps1
 ```
-The generated payload is saved in the NetWeave working directory.
 
 ### Execute on Linux
-PowerShell 7 is already installed during deployment. Run the generated payload with:
 ```bash
 pwsh ./fire_payloads_<target>.ps1
 ```
 
 ### Execute on Windows
-Open PowerShell and navigate to the NetWeave directory:
 ```powershell
 cd C:\path\to\NetWeave
-```
-
-Find the generated payload:
-```powershell
-dir fire_payloads_*.ps1
-```
-
-Run the generated payload:
-```powershell
 .\fire_payloads_<target>.ps1
 ```
 
-Review generated commands before execution and only use NetWeave against systems you own or have explicit permission to test.
+## Next Tactical Step: Attacking the Target
+Once NetWeave completes its execution loop and isolates the **GOLDEN PATH** attack vector, do not leave your terminal idle. Proceed directly to your exploitation framework to weaponize these findings:
+* Switch directly over to **Sectumsempra v1.0** to instantly compile your reverse shell staging assets and post-exploitation scripts tailored to this target environment.
 
 ## Requirements
 ```text
 Python 3.10+
-Ollama
-DeepSeek R1 8B
+Ollama (DeepSeek R1 8B)
 PowerShell 7
 ```
 
 ## Legal Notice
-NetWeave is intended for CTFs, security research, authorized assessments and isolated laboratory environments.
-
-Only use NetWeave against systems you own or have explicit permission to test.
+NetWeave is intended for CTFs, security research, authorized assessments, and isolated laboratory environments. Only use NetWeave against systems you own or have explicit permission to test.
