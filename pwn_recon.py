@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys
 import os
 import re
@@ -18,7 +19,7 @@ def get_installed_model():
                     if "deepseek" in m["name"].lower(): return m["name"]
                 for m in models:
                     if "qwen" in m["name"].lower(): return m["name"]
-                return models["name"]
+                return models[0]["name"]
     except Exception:
         pass
     return "deepseek-r1:8b"
@@ -37,16 +38,18 @@ def run_command(cmd, description):
     return ""
 
 def ask_local_ai(scan_data, model_name):
+    # Den absolut skarpaste system-prompten för maximal exploateringsprecision
     prompt = (
         f"You are an elite Red Team Lead evaluating rich CTF scanner data. Look at the big picture and prioritize. "
+        f"Analyze how findings from different tools correlate (e.g., matching a Gobuster directory with a Nikto finding or Nmap service version to form an attack chain).\n"
         f"Do not output your internal reasoning or <thought> tags. Output ONLY the core results. "
         f"Provide a focused execution plan structured exactly like this:\n\n"
         f"1. THE GOLDEN PATH (The Absolute Best Entry Point):\n"
-        f"Give the exact raw exploit command or tool needed to target this specific vulnerability immediately.\n\n"
+        f"Identify the highest-impact vulnerability. Provide a single-sentence tactical explanation of why this vector is chosen, followed immediately by the exact raw exploit command or tool needed to target this specific vulnerability immediately.\n\n"
         f"2. SECONDARY ATTACK VECTOR:\n"
-        f"What is the next logical step to gain a foothold?\n\n"
+        f"What is the next logical step to gain a foothold if the primary path is blocked? Short, aggressive breakdown of the secondary logical flaw or configuration oversight.\n\n"
         f"3. RECON QUICK WINS:\n"
-        f"Max 2 specific commands based on the web artifacts. Skip all ethical disclaimers, do not guess raw CVE numbers, "
+        f"Max 2 specific commands based on the web artifacts or exposed network services to extract immediate credentials or critical configuration data. Skip all ethical disclaimers, do not guess raw CVE numbers, "
         f"be extremely brief, and output only the command line blocks.\n\n"
         f"TARGET DATA (NMAP, GOBUSTER & NIKTO OUTPUT):\n{scan_data}"
     )
@@ -58,7 +61,6 @@ def ask_local_ai(scan_data, model_name):
     }
     
     try:
-        # Ändrat från timeout=300 till timeout=None för att tillåta obegränsad tid för lokal CPU-analys
         response = requests.post(OLLAMA_URL, json=payload, timeout=None)
         if response.status_code == 200:
             result_text = json.loads(response.text).get('response', '')
@@ -93,7 +95,7 @@ def generate_attack_script(ai_text, ip):
                 if clean_cmd.startswith('"') and clean_cmd.endswith('"'):
                     clean_cmd = clean_cmd[1:-1].strip()
                 
-                if " (" in clean_cmd: clean_cmd = clean_cmd.split(" (").strip()
+                if " (" in clean_cmd: clean_cmd = clean_cmd.split(" (")[0].strip()
                 if " | grep " in clean_cmd: clean_cmd = clean_cmd.replace(" | grep ", " | Select-String ")
                 
                 lower_cmd = clean_cmd.lower()
