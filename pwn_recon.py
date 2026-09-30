@@ -36,14 +36,19 @@ AI_TIMEOUT = 90  # Single timeout for all AI calls - enough to think, not enough
 # The Council of Wizards - Simplified, no individual timeouts
 COUNCIL = {
     "qwen2.5-coder:7b": {"role": "Battle Mage", "weight": 3},
+    "deepseek-r1:8b": {"role": "Archivist", "weight": 3},
     "llama3.2": {"role": "Scout", "weight": 2},
     "mistral": {"role": "Duelist", "weight": 2},
-    "deepseek-r1:8b": {"role": "Archivist", "weight": 3},
 }
 
 # Built-in attack patterns for when AI fails
 ATTACK_PATTERNS = {
     "http": {
+        "tools": ["gobuster", "nikto", "curl", "wfuzz"],
+        "paths": ["/admin", "/login", "/api", "/backup", "/.env", "/robots.txt"],
+        "extensions": ["php", "txt", "bak", "old", "zip"]
+    },
+    "https": {
         "tools": ["gobuster", "nikto", "curl", "wfuzz"],
         "paths": ["/admin", "/login", "/api", "/backup", "/.env", "/robots.txt"],
         "extensions": ["php", "txt", "bak", "old", "zip"]
@@ -391,7 +396,7 @@ CONFIDENCE: [High/Medium/Low]"""
         except requests.exceptions.Timeout:
             print(f"{Colors.WARNING}  ⚠ {model}: Timed out after {AI_TIMEOUT}s{Colors.ENDC}")
         except Exception as e:
-            pass
+            print(f"{Colors.WARNING}  ⚠ {model}: Failed with exception {e}{Colors.ENDC}")
         
         return None
     
@@ -568,7 +573,7 @@ CONFIDENCE: [High/Medium/Low]"""
                 safe = cmd.replace("'", "''")
                 f.write(f"Write-Host '[{i}/{len(cmds)}] {safe}' -ForegroundColor Cyan\n")
                 if dry_run:
-                    f.write(f"Write-Host 'DRY RUN: Would execute' -ForegroundColor Yellow\n")
+                    f.write(f"Write-Host '[DRY RUN] Would execute' -ForegroundColor Yellow\n")
                 else:
                     f.write(f"Invoke-Expression '{safe}'\n")
                 f.write("Write-Host ''\n")
@@ -583,7 +588,8 @@ CONFIDENCE: [High/Medium/Low]"""
         with open(sh_file, "w") as f:
             f.write("#!/bin/bash\n")
             f.write(f"# NetWeave Execution Payload\n")
-            f.write(f"# Target: {target}\n\n")
+            f.write(f"# Target: {target}\n")
+            f.write(f"# Generated: {datetime.now().isoformat()}\n\n")
             
             cmds = [primary] + alternatives
             for i, cmd in enumerate(cmds, 1):
@@ -605,7 +611,8 @@ CONFIDENCE: [High/Medium/Low]"""
         with open(py_file, "w") as f:
             f.write("#!/usr/bin/env python3\n")
             f.write(f"# NetWeave Execution Payload\n")
-            f.write(f"# Target: {target}\n\n")
+            f.write(f"# Target: {target}\n")
+            f.write(f"# Generated: {datetime.now().isoformat()}\n\n")
             f.write("import subprocess\nimport sys\n\n")
             
             cmds = [primary] + alternatives
