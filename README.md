@@ -1,6 +1,6 @@
 # NetWeave v8.1 - Council of Wizards Edition
 
-**NetWeave** operates as a local reconnaissance and security testing framework built for CTFs, laboratory environments, and authorized assessments. It transforms raw reconnaissance data into a correlated attack path and a deployable execution workflow using an AI-powered "Council of Wizards" for intelligent decision making.
+**NetWeave** operates as a local reconnaissance and security testing framework built for CTFs, laboratory environments, and authorized assessments. It transforms raw reconnaissance data into a correlated attack path and a deployable execution workflow using an AI powered "Council of Wizards" for intelligent decision making.
 
 ```text
 TARGET
