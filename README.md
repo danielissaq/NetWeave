@@ -108,11 +108,11 @@ python3 pwn_recon.py
 ```
 **With target specified:**
 ```bash
-python3 pwn_recon.py -t xx.xxx.x.x
+python3 pwn_recon.py -t <TARGET_IP>
 ```
 **Dry run (generate scripts without execution markers):**
 ```bash
-python3 pwn_recon.py -t xx.xxx.x.x --dry-run
+python3 pwn_recon.py -t <TARGET_IP> --dry-run
 ```
 
 ---
@@ -132,7 +132,7 @@ After execution completes, NetWeave generates multiple targeted scripts inside y
 ```bash
 # Bash
 chmod +x netweave_*.sh
-./netweave_192_168_1_100_20250115_143022.sh
+./netweave_<TARGET_IP>_<TIMESTAMP>.sh
 
 # Python
 python3 netweave_*_exec.py
@@ -143,7 +143,7 @@ pwsh ./netweave_*.ps1
 
 #### Windows
 ```powershell
-.\netweave_192_168_1_100_20250115_143022.ps1
+.\netweave_<TARGET_IP>_<TIMESTAMP>.ps1
 ```
 
 ---
