@@ -1,4 +1,4 @@
-# NetWeave v7.0
+# NetWeave v7.1
 
 **NetWeave** operates as a local reconnaissance and security testing framework built for CTFs, laboratory environments, and authorized assessments. It transforms raw reconnaissance data into a correlated attack path and a deployable execution workflow.
 
