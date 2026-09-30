@@ -19,7 +19,7 @@ def get_installed_model():
                     if "deepseek" in m["name"].lower(): return m["name"]
                 for m in models:
                     if "qwen" in m["name"].lower(): return m["name"]
-                return models[0]["name"]  # Fixat indexering
+                return models[0]["name"]
     except Exception:
         pass
     return "deepseek-r1:8b"
@@ -113,7 +113,6 @@ def generate_attack_script(ai_text, ip):
                 if clean_cmd.startswith('"') and clean_cmd.endswith('"'):
                     clean_cmd = clean_cmd[1:-1].strip()
                 
-                # Fixat strängdelning för kommentarer
                 if " (" in clean_cmd: clean_cmd = clean_cmd.split(" (")[0].strip()
                 if " | grep " in clean_cmd: clean_cmd = clean_cmd.replace(" | grep ", " | Select-String ")
                 
@@ -159,11 +158,9 @@ def main():
 
     scan_report = f"TARGET: {ip}\nSCAN TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     
-    # Kör TCP Connect-scan som fungerar bäst utan root-privilegier lokalt
     nmap_cmd = ["nmap", "-F", "-Pn", "-sT", ip]
     nmap_output = run_command(nmap_cmd, "Deep Nmap Vulnerability Scan")
     
-    # Fallback-data om målet är helt osynligt/brandväggat
     if "open" not in nmap_output.lower():
         print("[!] Nmap returned 0 open ports. Engaging simulated CTF Target Mode to force AI execution...")
         nmap_output = f"""
@@ -183,7 +180,7 @@ PORT     STATE SERVICE VERSION
     
     if web_ports:
         print(f"[!] Web interface detected on port(s): {', '.join(web_ports)}. Spawning sub-recon suites...")
-        chosen_port = web_ports[0]  # Fixat: Plockar strängen korrekt ur listan
+        chosen_port = web_ports[0]
         if chosen_port == "443":
             url_prefix = f"https://{ip}"
         elif chosen_port == "80":
@@ -197,7 +194,6 @@ PORT     STATE SERVICE VERSION
             gobuster_output = run_command(gobuster_cmd, "Gobuster Directory Brute-Force")
             scan_report += "=== GOBUSTER DIRECTORY ARTIFACTS ===\n" + gobuster_output + "\n"
         else:
-            # Fallback-data för Gobuster vid simulerat läge
             scan_report += "=== GOBUSTER DIRECTORY ARTIFACTS ===\n/manager/html (Status: 401)\n/secret_dev_backup.txt (Status: 200)\n"
             
         nikto_cmd = ["nikto", "-h", url_prefix, "-Tuning", "1,2,3,4,8,9", "-maxtime", "60s"]
@@ -207,13 +203,15 @@ PORT     STATE SERVICE VERSION
     print("\n[*] COUPLING RECON DATA WITH LOCAL INTELLIGENCE DATABASE...")
     ai_analysis = ask_local_ai(scan_report, active_model)
     
-           if ai_analysis:
+    if ai_analysis:
         script_file = generate_attack_script(ai_analysis, ip)
         if script_file:
             print(f"\n[███] SUCCESS: Automated execution payload created: {os.getcwd()}/{script_file} 🔥")
             print(f"[!] Run this script in PowerShell to execute the automated attack chain!")
         else:
             print("\n[-] AI provided analysis but no actionable attack commands could be parsed.")
+
+
 
 if __name__ == "__main__":
     main()
