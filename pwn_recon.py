@@ -66,8 +66,15 @@ def ask_local_ai(scan_data, model_name):
     try:
         response = requests.post(OLLAMA_URL, json=payload, timeout=None)
         if response.status_code == 200:
-            result_text = json.loads(response.text).get('response', '')
-            result_text = re.sub(r'<thought>.*?</thought>', '', result_text, flags=re.DOTALL).strip()
+            raw_text = json.loads(response.text).get('response', '')
+            
+            # Clean up the output by pulling data outside of tags
+            result_text = re.sub(r'<thought>.*?</thought>', '', raw_text, flags=re.DOTALL).strip()
+            
+            # FALLBACK CRITICAL ENGINE: If stripping thoughts left us with nothing, parse the raw text instead
+            if not result_text:
+                result_text = raw_text.replace('<thought>', '[THOUGHT PROCESS]:\n').replace('</thought>', '\n').strip()
+                
             print("\n" + "="*25 + " NETWEAVE CORE INTELLIGENCE CORRELATION " + "="*25)
             print(result_text)
             print("="*94)
