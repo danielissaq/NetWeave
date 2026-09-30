@@ -75,4 +75,122 @@ ollama pull qwen2.5-coder:7b
 # Alternatives
 ollama pull deepseek-r1:8b
 ollama pull llama3.2
+ollama pull mistral
 ```
+
+**Verify models:**
+```bash
+ollama list
+```
+
+### 7. Launch NetWeave
+**Interactive mode:**
+```bash
+python3 pwn_recon.py
+```
+
+**With target specified:**
+```bash
+python3 pwn_recon.py -t 192.168.1.100
+```
+
+**Dry run (generate scripts without execution):**
+```bash
+python3 pwn_recon.py -t 192.168.1.100 --dry-run
+```
+
+## Generated Payloads
+After completion, NetWeave generates multiple execution scripts:
+
+```text
+netweave_<target>_<timestamp>.ps1     # PowerShell
+netweave_<target>_<timestamp>.sh      # Bash
+netweave_<target>_<timestamp>_exec.py # Python
+netweave_<target>_<timestamp>.json    # Summary
+```
+
+## Execute Payloads
+
+### Linux/macOS
+```bash
+# Bash
+chmod +x netweave_*.sh
+./netweave_192_168_1_100_20250115_143022.sh
+
+# Python
+python3 netweave_*_exec.py
+
+# PowerShell
+pwsh ./netweave_*.ps1
+```
+
+### Windows
+```powershell
+.\netweave_192_168_1_100_20250115_143022.ps1
+```
+
+## The Council of Wizards
+
+| Model | Role | Weight | Timeout | Best For |
+| :--- | :--- | :---: | :---: | :--- |
+| **qwen2.5-coder:7b** | Battle Mage | 3 | 60s | Fast command generation |
+| **deepseek-r1:8b** | Archivist | 3 | 180s | Deep reasoning |
+| **llama3.2** | Scout | 2 | 30s | Rapid fallback |
+| **mistral** | Duelist | 2 | 45s | Balanced performance |
+
+Models vote on attack commands; higher weight + confidence = stronger vote.
+
+## Command Line Options
+```bash
+python3 pwn_recon.py [-h] [-t TARGET] [--dry-run] [--resume]
+
+Options:
+  -h, --help            Show help message
+  -t, --target          Target IP address (optional, will prompt if omitted)
+  --dry-run             Generate scripts without execution markers
+  --resume              Resume from previous session (not fully implemented)
+```
+
+## Attack Pattern Fallbacks
+If AI models are unavailable, NetWeave uses built-in patterns:
+
+| Service | Default Action |
+| :--- | :--- |
+| **HTTP** | Gobuster directory scan |
+| **SSH** | Hydra brute force |
+| **FTP** | Anonymous login test |
+| **SMB** | enum4linux enumeration |
+
+## Next Tactical Step
+Once NetWeave completes and isolates the **PRIMARY ATTACK VECTOR**, proceed to your exploitation framework. The JSON summary contains the voted commands for manual execution or automation.
+
+## Requirements
+* Python 3.10+
+* Ollama (any model from The Council)
+* Nmap
+* Gobuster (for web scanning)
+* Nikto (for web vulnerability scanning)
+* PowerShell 7 (optional, for `.ps1` execution)
+* 8GB+ RAM recommended for local AI models
+
+## Troubleshooting
+
+**"No module named 'requests'"**
+```bash
+pip3 install requests
+```
+
+**"Ollama not running"**
+```bash
+# Terminal 1
+ollama serve
+
+# Terminal 2 - verify
+curl http://localhost:11434/api/tags
+```
+
+**Nmap XML parse fails**
+NetWeave automatically falls back to TCP connect scan on common ports.
+
+## Legal Notice
+NetWeave is strictly intended for CTFs, security research, authorized assessments, and isolated laboratory environments. Only use NetWeave against systems you own or have explicit permission to test. Unauthorized access to computer systems is illegal.
