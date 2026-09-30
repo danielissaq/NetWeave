@@ -7,14 +7,14 @@ import json
 OLLAMA_URL = "http://127.0.0.1:11434"
 MODEL_NAME = "deepseek-r1:8b"
 
-BANNER = r"""
+BANNER = """
 ================================================================
   _   _        _ __        __eae                
 
- | \ | | ___ _| |\ \      / /__  __ _ _   _____ 
- |  \| |/ _ \_   _\ \ /\ / / _ \/ _` | | | / _ \
- | |\  |  __/ | |  \ V  V /  __/ (_| | |_| |  __/
- |_| \_|\___| |_|   \_/\_/ \___|\__,_|\__,_|\___| v7.0
+  |   | | ___ _| |          / __  __ _ _   _____ 
+  | | | |/ _ _   _  / / / /  / _/ _` | | | / _ /
+  | | |  __/ | |    V  V /  __/ (_| | |_| |  __/
+  |_| |_|___| |_|    /_/_/ ___|__,_|_eae|___| v7.0
 ================================================================
  [*] Tactical Reconnaissance & Intelligent Attack Path Engine
 ================================================================
@@ -40,7 +40,6 @@ def run_nmap(target_ip):
 def ask_local_ai(scan_data):
     print(f"[➔] Processing data through tactical intelligence pipeline...")
     
-    # Optimerad prompt för att agera som en direkt, strategisk hacking-assistent
     prompt = (
         "You are an elite Red Team operator and tactical hacking assistant. Analyze the provided Nmap scan results.\n"
         "Your output must be ultra-dense, strategic, and highly actionable. No fluff, no introductory chatter, no mechanical filler.\n\n"
