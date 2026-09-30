@@ -1,4 +1,4 @@
-# NetWeave v6.5
+# NetWeave v7.0
 
 **NetWeave** is a fast local reconnaissance and security testing framework for CTFs, labs and authorized assessments.
 
