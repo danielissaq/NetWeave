@@ -38,7 +38,6 @@ def run_command(cmd, description):
     return ""
 
 def ask_local_ai(scan_data, model_name):
-    # OPTIMERING: Strikt systemdirektiv adderat i prompten för att tvinga fram omedelbart svar utan CPU-loopar
     prompt = (
         f"You are an elite Red Team Lead evaluating rich CTF scanner data. Look at the big picture and prioritize. "
         f"Analyze how findings from different tools correlate (e.g., matching a Gobuster directory with a Nikto finding or Nmap service version to form an attack chain).\n"
@@ -58,7 +57,6 @@ def ask_local_ai(scan_data, model_name):
         "model": model_name,
         "prompt": prompt,
         "stream": False,
-        # OPTIMERING: Parametrar som sänker bearbetningstiden drastiskt för lokala modeller
         "options": {
             "temperature": 0.1,
             "num_predict": 400
@@ -143,7 +141,6 @@ def main():
 
     scan_report = f"TARGET: {ip}\nSCAN TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     
-    # OPTIMERING: Ändrat till -sC istället för tunga --script=vuln för att undvika oändliga hängningar
     nmap_cmd = ["nmap", "-sV", "-sC", "-T4", "--top-ports", "100", ip]
     nmap_output = run_command(nmap_cmd, "Deep Nmap Vulnerability Scan")
     scan_report += "=== NMAP VULNERABILITY REPORT ===\n" + nmap_output + "\n"
@@ -168,7 +165,6 @@ def main():
     print("\n[*] COUPLING RECON DATA WITH LOCAL INTELLIGENCE DATABASE...")
     ai_analysis = ask_local_ai(scan_report, active_model)
     
-    # ÅTERSTÄLLD LOGIK: Den saknade slutdelen exekveras nu klockrent
     if ai_analysis:
         script_file = generate_attack_script(ai_analysis, ip)
         if script_file:
