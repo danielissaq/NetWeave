@@ -1,9 +1,9 @@
-import socket
 import sys
 import os
 import re
 import requests
 import json
+import subprocess
 from datetime import datetime
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -18,46 +18,27 @@ def get_installed_model():
                     if "deepseek" in m["name"].lower(): return m["name"]
                 for m in models:
                     if "qwen" in m["name"].lower(): return m["name"]
-                return models[0]["name"]
+                return models["name"]
     except Exception:
         pass
     return "deepseek-r1:8b"
 
-def get_banner(ip, port):
-    # För webbportar använder vi requests för att få en pålitlig Server-header
-    if port in:
-        try:
-            proto = "https" if port == 443 else "http"
-            url = f"{proto}://{ip}:{port}/"
-            res = requests.head(url, timeout=2, headers={"User-Agent": "NetWeave/6.5"}, verify=False)
-            server = res.headers.get("Server")
-            if server:
-                return server.strip()
-        except Exception:
-            pass
-
-    # Standard banner-grabbing via sockets för övriga portar
+def run_command(cmd, description):
+    print(f"[*] Starting {description}...")
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1.5)
-            s.connect((ip, port))
-            # Vissa tjänster kräver att man skickar data först för att svara
-            if port in:
-                banner = s.recv(1024).decode("utf-8", errors="ignore").strip()
-            else:
-                s.sendall(b"\r\n")
-                banner = s.recv(1024).decode("utf-8", errors="ignore").strip()
-            
-            if banner:
-                return banner[:60].replace('\r\n', ' ').strip()
-    except Exception:
-        pass
-    return "Unknown Service"
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+        if result.returncode == 0 or result.stdout:
+            print(f"[+] {description} completed successfully.")
+            return result.stdout
+    except subprocess.TimeoutExpired:
+        print(f"[-] {description} timed out after 300 seconds. Moving on with partial data.")
+    except Exception as e:
+        print(f"[-] Failed to execute {description}: {str(e)}")
+    return ""
 
 def ask_local_ai(scan_data, model_name):
-    # Prompten har optimerats för att förhindra att deepseek-r1 dumpar hela sin <thought>-process i skriptet
     prompt = (
-        f"You are an elite Red Team Lead evaluating CTF data. Look at the big picture and prioritize. "
+        f"You are an elite Red Team Lead evaluating rich CTF scanner data. Look at the big picture and prioritize. "
         f"Do not output your internal reasoning or <thought> tags. Output ONLY the core results. "
         f"Provide a focused execution plan structured exactly like this:\n\n"
         f"1. THE GOLDEN PATH (The Absolute Best Entry Point):\n"
@@ -67,7 +48,7 @@ def ask_local_ai(scan_data, model_name):
         f"3. RECON QUICK WINS:\n"
         f"Max 2 specific commands based on the web artifacts. Skip all ethical disclaimers, do not guess raw CVE numbers, "
         f"be extremely brief, and output only the command line blocks.\n\n"
-        f"TARGET DATA:\n{scan_data}"
+        f"TARGET DATA (NMAP, GOBUSTER & NIKTO OUTPUT):\n{scan_data}"
     )
     
     payload = {
@@ -80,7 +61,6 @@ def ask_local_ai(scan_data, model_name):
         response = requests.post(OLLAMA_URL, json=payload, timeout=300)
         if response.status_code == 200:
             result_text = json.loads(response.text).get('response', '')
-            # Snygga till utskriften genom att rensa bort eventuella kvarvarande thought-taggar manuellt
             result_text = re.sub(r'<thought>.*?</thought>', '', result_text, flags=re.DOTALL).strip()
             print("\n" + "="*25 + " NETWEAVE CORE INTELLIGENCE CORRELATION " + "="*25)
             print(result_text)
@@ -94,8 +74,7 @@ def ask_local_ai(scan_data, model_name):
         return ""
 
 def generate_attack_script(ai_text, ip):
-    # Denna regex fångar rader som börjar med kända verktyg samt hanterar markdown-kodblock
-    commands = re.findall(r'(?:^|\s|```)((?:curl|ssh|nmap|nikto|dirb|hydra|nuclei|gobuster|wfuzz)\s[^\n`*]*)', ai_text, re.IGNORECASE)
+    commands = re.findall(r'(?:^|\s|```)((?:curl|ssh|nmap|nikto|dirb|hydra|nuclei|gobuster|wfuzz|msfconsole|searchsploit)\s[^\n`*]*)', ai_text, re.IGNORECASE)
     if not commands:
         return False
         
@@ -113,13 +92,11 @@ def generate_attack_script(ai_text, ip):
                 if clean_cmd.startswith('"') and clean_cmd.endswith('"'):
                     clean_cmd = clean_cmd[1:-1].strip()
                 
-                if " (" in clean_cmd: clean_cmd = clean_cmd.split(" (")[0].strip()
-                
-                if " | grep " in clean_cmd:
-                    clean_cmd = clean_cmd.replace(" | grep ", " | Select-String ")
+                if " (" in clean_cmd: clean_cmd = clean_cmd.split(" (").strip()
+                if " | grep " in clean_cmd: clean_cmd = clean_cmd.replace(" | grep ", " | Select-String ")
                 
                 lower_cmd = clean_cmd.lower()
-                supported_tools = ["curl ", "ssh ", "nmap ", "nikto ", "dirb ", "hydra ", "nuclei ", "gobuster ", "wfuzz "]
+                supported_tools = ["curl ", "ssh ", "nmap ", "nikto ", "dirb ", "hydra ", "nuclei ", "gobuster ", "wfuzz ", "msfconsole ", "searchsploit "]
                 if not any(lower_cmd.startswith(tool) for tool in supported_tools):
                     continue
                 
@@ -147,7 +124,7 @@ def main():
     ██║ ╚████║███████╗   ██║   ╚███╔███╔╝███████╗██║  ██║ ╚████╔╝ ███████╗
     ╚═╝  ╚═══╝╚══════╝   ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝
     """)
-    print(" >>> NetWeave v6.5 - Advanced Threat Intelligence & Recon Framework <<<")
+    print(" >>> NetWeave v7.0 - Recon & Attack Path Correlation Framework <<<")
     
     active_model = get_installed_model()
     print(f"[*] Engine Status: Core Analysis Module ONLINE ({active_model})")
@@ -156,71 +133,39 @@ def main():
     ip = input().strip()
     if not ip: return
 
-    scan_report = f"TARGET: {ip}\nSCAN TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n[PORT RESULTS]\n"
+    scan_report = f"TARGET: {ip}\nSCAN TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     
-    # Utökad med fler standardportar för CTF (t.ex. SMB 445, FTP 21, MySQL 3306)
-    ports_to_scan = [21, 22, 23, 25, 53, 80, 139, 443, 445, 3306, 8080, 8081]
-    open_ports = {}
+    nmap_cmd = ["nmap", "-sV", "-T4", "--version-light", "--script=vuln", "--top-ports", "100", ip]
+    nmap_output = run_command(nmap_cmd, "Deep Nmap Vulnerability Scan")
+    scan_report += "=== NMAP VULNERABILITY REPORT ===\n" + nmap_output + "\n"
     
-    print("\n[*] Mapping target attack surface...")
-    for port in ports_to_scan:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1.0)
-            if s.connect_ex((ip, port)) == 0:
-                banner = get_banner(ip, port)
-                result_line = f"  ▶ Port {port}/tcp is OPEN | Service/Banner: {banner}"
-                print(result_line)
-                scan_report += result_line + "\n"
-                open_ports[port] = banner
+    has_web = any(p in nmap_output for p in ["80/tcp", "443/tcp", "8080/tcp"])
+    
+    if has_web:
+        print("[!] Web interface detected. Spawning sub-recon suites...")
+        
+        wordlist = "/usr/share/wordlists/dirb/common.txt"
+        if os.path.exists(wordlist):
+            gobuster_cmd = ["gobuster", "dir", "-u", f"http://{ip}", "-w", wordlist, "-q", "-t", "20", "--timeout", "10s"]
+            gobuster_output = run_command(gobuster_cmd, "Gobuster Directory Brute-Force")
+            scan_report += "=== GOBUSTER DIRECTORY ARTIFACTS ===\n" + gobuster_output + "\n"
+        else:
+            scan_report += "=== GOBUSTER ===\nStandard Kali wordlist not found. Skipping brute-force.\n"
+            
+        nikto_cmd = ["nikto", "-h", f"http://{ip}", "-Tuning", "1,2,3,4,8,9", "-maxtime", "60s"]
+        nikto_output = run_command(nikto_cmd, "Nikto Web Vulnerability Scanner")
+        scan_report += "=== NIKTO WEB ASSESSMENT ===\n" + nikto_output + "\n"
 
-    # Kontrollera om det finns öppna webbportar
-    web_ports = [p for p in [80, 443, 8080, 8081] if p in open_ports]
-
-    if web_ports:
-        scan_report += "\n[WEB ARTIFACTS]\n"
-        for w_port in web_ports:
-            proto = "https" if w_port == 443 else "http"
-            base_url = f"{proto}://{ip}:{w_port}"
-            try:
-                res = requests.get(base_url, timeout=4, headers={"User-Agent": "NetWeave/6.5"}, verify=False)
-                
-                # Extrahera HTML-kommentarer
-                comments = re.findall(r"<!--(.*?)-->", res.text, re.DOTALL)
-                if comments:
-                    print(f"  [!] Port {w_port}: Extracted {len(comments)} hidden HTML fragments.")
-                    for c in comments: 
-                        if c.strip(): scan_report += f"  ▶ [Port {w_port}] Hidden Comment: {c.strip()}\n"
-                
-                # Utökad ordlista för vanliga CTF-sökvägar och känsliga filer
-                dirs = [
-                    "/admin", "/secret", "/robots.txt", "/.git", "/config", 
-                    "/.env", "/api", "/backup", "/index.php.bak", "/login"
-                ]
-                for path in dirs:
-                    path_res = requests.get(base_url + path, timeout=1.5, allow_redirects=False, verify=False)
-                    status = path_res.status_code
-                    if status in:
-                        dir_line = f"  ▶ [Port {w_port}] Directory Artifact: {path} (Status: {status})"
-                        scan_report += dir_line + "\n"
-            except Exception:
-                pass
-
-    # Skicka insamlad data till den lokala AI-modellen
+    print("\n[*] COUPLING RECON DATA WITH LOCAL INTELLIGENCE DATABASE...")
     ai_analysis = ask_local_ai(scan_report, active_model)
     
     if ai_analysis:
-        # Generera det automatiserade attackskriptet baserat på AI-svaret
         script_file = generate_attack_script(ai_analysis, ip)
         if script_file:
-            print(f"\n[+] Tactical workflow successfully generated: {script_file}")
-            print(f"[*] Review the script contents before executing.")
+            print(f"\n[███] SUCCESS: Automated execution payload created: {os.getcwd()}/{script_file} 🔥")
+            print(f"[!] Run this script in PowerShell to execute the automated attack chain!")
         else:
-            print("\n[-] AI provided analysis but no executable tactical commands could be extracted.")
-
-if __name__ == "__main__":
-    main()
-
-            print("[-] No valid attack vectors found in database output to automate.")
+            print("\n[-] AI provided analysis but no actionable attack commands could be parsed.")
 
 if __name__ == "__main__":
     main()
