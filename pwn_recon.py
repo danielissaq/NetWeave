@@ -58,7 +58,8 @@ def ask_local_ai(scan_data, model_name):
     }
     
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=300)
+        # Ändrat från timeout=300 till timeout=None för att tillåta obegränsad tid för lokal CPU-analys
+        response = requests.post(OLLAMA_URL, json=payload, timeout=None)
         if response.status_code == 200:
             result_text = json.loads(response.text).get('response', '')
             result_text = re.sub(r'<thought>.*?</thought>', '', result_text, flags=re.DOTALL).strip()
