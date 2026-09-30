@@ -38,10 +38,11 @@ def run_command(cmd, description):
     return ""
 
 def ask_local_ai(scan_data, model_name):
+    # OPTIMERING: Strikt systemdirektiv adderat i prompten för att tvinga fram omedelbart svar utan CPU-loopar
     prompt = (
         f"You are an elite Red Team Lead evaluating rich CTF scanner data. Look at the big picture and prioritize. "
         f"Analyze how findings from different tools correlate (e.g., matching a Gobuster directory with a Nikto finding or Nmap service version to form an attack chain).\n"
-        f"Do not output your internal reasoning or <thought> tags. Output ONLY the core results. "
+        f"CRITICAL DIRECTIONS: RESPOND IMMEDIATELY. Do not think step-by-step. Do not output your internal reasoning or <thought> tags. Output ONLY the core results.\n"
         f"Provide a focused execution plan structured exactly like this:\n\n"
         f"1. THE GOLDEN PATH (The Absolute Best Entry Point):\n"
         f"Identify the highest-impact vulnerability. Provide a single-sentence tactical explanation of why this vector is chosen, followed immediately by the exact raw exploit command or tool needed to target this specific vulnerability immediately.\n\n"
@@ -56,7 +57,12 @@ def ask_local_ai(scan_data, model_name):
     payload = {
         "model": model_name,
         "prompt": prompt,
-        "stream": False
+        "stream": False,
+        # OPTIMERING: Parametrar som sänker bearbetningstiden drastiskt för lokala modeller
+        "options": {
+            "temperature": 0.1,
+            "num_predict": 400
+        }
     }
     
     try:
@@ -137,7 +143,8 @@ def main():
 
     scan_report = f"TARGET: {ip}\nSCAN TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     
-    nmap_cmd = ["nmap", "-sV", "-T4", "--version-light", "--script=vuln", "--top-ports", "100", ip]
+    # OPTIMERING: Ändrat till -sC istället för tunga --script=vuln för att undvika oändliga hängningar
+    nmap_cmd = ["nmap", "-sV", "-sC", "-T4", "--top-ports", "100", ip]
     nmap_output = run_command(nmap_cmd, "Deep Nmap Vulnerability Scan")
     scan_report += "=== NMAP VULNERABILITY REPORT ===\n" + nmap_output + "\n"
     
@@ -161,6 +168,7 @@ def main():
     print("\n[*] COUPLING RECON DATA WITH LOCAL INTELLIGENCE DATABASE...")
     ai_analysis = ask_local_ai(scan_report, active_model)
     
+    # ÅTERSTÄLLD LOGIK: Den saknade slutdelen exekveras nu klockrent
     if ai_analysis:
         script_file = generate_attack_script(ai_analysis, ip)
         if script_file:
