@@ -73,13 +73,6 @@ NetWeave uses the local Ollama service at:
 http://127.0.0.1:11434
 ```
 
-### 6. Prepare the model
-Return to the first terminal and enter the NetWeave directory:
-```bash
-cd NetWeave
-source .venv/bin/activate
-```
-
 Pull the required model:
 ```bash
 ollama pull deepseek-r1:8b
