@@ -38,7 +38,6 @@ def run_command(cmd, description):
     return ""
 
 def ask_local_ai(scan_data, model_name):
-    # Den absolut skarpaste system-prompten för maximal exploateringsprecision
     prompt = (
         f"You are an elite Red Team Lead evaluating rich CTF scanner data. Look at the big picture and prioritize. "
         f"Analyze how findings from different tools correlate (e.g., matching a Gobuster directory with a Nikto finding or Nmap service version to form an attack chain).\n"
