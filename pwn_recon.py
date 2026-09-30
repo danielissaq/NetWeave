@@ -10,7 +10,6 @@ MODEL_NAME = "deepseek-r1:8b"
 def run_nmap(target_ip):
     print(f"[*] Initiating Nmap scan against target: {target_ip}")
     try:
-        # Performing service detection and default script scanning
         result = subprocess.run(
             ["nmap", "-sV", "-sC", "-T4", target_ip],
             capture_output=True,
@@ -38,7 +37,6 @@ def ask_local_ai(scan_data):
     }
     
     try:
-        # Timeout configured to None to accommodate intensive local CPU processing without ReadTimeout exceptions
         response = requests.post(OLLAMA_URL, json=payload, timeout=None)
         response.raise_for_status()
         response_json = response.json()
