@@ -108,11 +108,11 @@ python3 pwn_recon.py
 ```
 **With target specified:**
 ```bash
-python3 pwn_recon.py -t 192.168.1.100
+python3 pwn_recon.py -t xx.xxx.x.x
 ```
 **Dry run (generate scripts without execution markers):**
 ```bash
-python3 pwn_recon.py -t 192.168.1.100 --dry-run
+python3 pwn_recon.py -t xx.xxx.x.x --dry-run
 ```
 
 ---
