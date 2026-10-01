@@ -1,219 +1,229 @@
-# NetWeave v8.1 - Council of Wizards Edition
+# ⚡ The 3/3 Local CTF Speedrun Suite
 
-**NetWeave** operates as a local reconnaissance and security testing framework built for CTFs, laboratory environments, and authorized assessments. It transforms raw reconnaissance data into a correlated attack path and a deployable execution workflow using an AI powered "Council of Wizards" for intelligent decision making.
+An advanced, high-performance, fully offline attack pipeline engineered for competitive HackTheBox (HTB) and TryHackMe (THM) virtual lab environments. This architecture eliminates manual overhead, splits heavy workloads to prevent VM lag, and operates entirely within local infrastructure out of a single terminal window.
 
 ```text
-TARGET
-  │
-  ▼
-RECONNAISSANCE (Nmap + Web Scan)
-  │
-  ▼
-COUNCIL DELIBERATION (AI Analysis)
-  │
-  ▼
-ATTACK PATH (Voted Commands)
-  │
-  ▼
-EXECUTION PAYLOADS (Multi-format)
+  [Tool 1: NetWeave] ──(Discovers & Parses JSON)──► [Tool 2: Sectumsempra]
+                                                           │
+                                            (Auto-detects LHOST, fires listener,
+                                             builds stagers, chains to Tool 3)
 ```
 
-NetWeave maps exposed services, collects host and web information, correlates findings through multiple AI models, and produces structured testing workflows in PowerShell, Bash, and Python formats.
-
 ---
 
-## 📦 Key Features v8.1
+# #️⃣ NetWeave v9.0 - Cyan Engine (Council of Wizards Edition)
 
-* **Council of Wizards:** Multiple AI models vote on the best attack vector.
-* **Multi-Format Payloads:** Generates PowerShell (`.ps1`), Bash (`.sh`), Python (`.py`), and JSON summaries.
-* **Intelligent Fallbacks:** Builtin attack patterns when AI models are unavailable.
-* **Web Scanning:** Automated Gobuster and Nikto framework integration.
-* **Parallel Processing:** Concurrent AI model queries to optimize speed.
-* **Enhanced Error Handling:** Improved logging mechanisms and clearer error messages.
-* **Security Checks:** Features built to ensure secure and compliant platform usage.
-* **Comprehensive Documentation:** Detailed environment setup guides and command examples.
+**NetWeave** is the first stage of the **3/3 Local CTF Speedrun Suite**, a high-performance, fully offline attack pipeline designed for HackTheBox (HTB) and TryHackMe (THM) lab environments. It operates as a local reconnaissance engine that processes telemetry through a "Council of Wizards" (multiple local Ollama models) to determine the optimal attack path, then serializes findings into a structured JSON contract for consumption by **Sectumsempra (Tool 2/3)**.
 
----
+```text
+┌─────────────────┐     ┌──────────────────────────────┐     ┌─────────────────┐
+│   TARGET IP     │────▶│  NetWeave v9.0 Cyan Engine   │────▶│  netweave_      │
+│                 │     │  ├─ Async Nmap Scan          │     │  <target>.json  │
+└─────────────────┘     │  ├─ Fallback Socket Probe     │     └─────────────────┘
+                        │  └─ Council of Wizards (AI)   │              │
+                        │     ├─ qwen2.5-coder (Mage) │              ▼
+                        │     ├─ deepseek-r1 (Archivist)│     ┌─────────────────┐
+                        │     ├─ llama3.2 (Scout)       │     │  Sectumsempra   │
+                        │     └─ mistral (Duelist)      │────▶│  (Tool 2/3)     │
+                        └──────────────────────────────┘     │  Green Engine   │
+                                                             └─────────────────┘
+```
 
-## 🛠️ Tech Stack & Requirements
+**Key Principle:** Zero cloud dependencies. Zero API keys. 100% local inference.
+
+## 📦 Features v9.0
+
+* **Council of Wizards:** Multi-model voting system using local Ollama instances (`qwen2.5-coder`, `deepseek-r1`, `llama3.2`, `mistral`).
+* **Asynchronous Architecture:** Non-blocking I/O with asyncio for high-speed port scanning.
+* **Intelligent Fallbacks:** Raw Python socket probes when Nmap is unavailable; pattern-based attacks when AI is offline.
+* **Structured Contract:** Outputs `netweave_<target>.json` for seamless pipeline integration with Tool 2/3.
+* **Rich Terminal UI:** Cyan-themed ANSI output with real-time status indicators.
+* **Air-Gapped Ready:** Functions completely offline after initial model download.
+
+## 🛠️ Requirements
 
 ### System Requirements
-* **OS:** Linux / macOS (Windows supported for payload execution)
-* **Python Version:** Python 3.10+
-* **Hardware:** 8GB+ RAM recommended for hosting local AI models
+* **OS:** Linux (Kali/Ubuntu/Debian) or macOS
+* **Python:** 3.10+
+* **Ollama:** Local LLM runtime (ollama.com)
+* **System Tools:** `nmap` (optional but recommended)
 
-### Dependencies
-* **Core Framework:** Ollama
-* **Reconnaissance Tools:** Nmap, Gobuster, Nikto
-* **Execution Environment:** PowerShell 7 (Optional, for `.ps1` execution on Linux)
-
----
+### Python Dependencies
+```bash
+pip install aiohttp rich netifaces
+```
 
 ## 🚀 Deployment
 
-### 1. Clone NetWeave
-```bash
-git clone https://github.com/danielissaq/NetWeave.git
-cd NetWeave
-```
-
-### 2. Prepare Python Environment
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install requests
-```
-
-### 3. Install PowerShell (Optional)
-NetWeave generates PowerShell execution payloads among other formats. To execute `.ps1` files natively on Linux:
-```bash
-sudo apt update
-sudo apt install -y powershell
-pwsh --version
-```
-
-### 4. Install Ollama
+### 1. Install Ollama
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama --version
-```
-
-### 5. Start Ollama Service
-**Terminal 1:**
-```bash
 ollama serve
 ```
 
-### 6. Retrieve Models
-The Council supports multiple models. Pull one or more depending on your configuration:
+### 2. Download the Council
+In a separate terminal tab, pull down the targeted open-source models:
 ```bash
-# Recommended - Fast and accurate for CTFs
+# Required (Battle Mage - fast command generation)
 ollama pull qwen2.5-coder:7b
 
-# Alternatives
+# Recommended (Archivist - deep reasoning)
 ollama pull deepseek-r1:8b
+
+# Optional (Scout & Duelist - fallback analysis)
 ollama pull llama3.2
 ollama pull mistral
 ```
-**Verify your local models:**
+Verify the models are pulled successfully:
 ```bash
 ollama list
 ```
 
-### 7. Launch NetWeave
-**Interactive mode:**
+### 3. Run NetWeave
 ```bash
-python3 pwn_recon.py
+python3 netweave.py 10.10.10.10
 ```
-**With target specified:**
+For pure offline mode without AI processing:
 ```bash
-python3 pwn_recon.py -t <TARGET_IP>
-```
-**Dry run (generate scripts without execution markers):**
-```bash
-python3 pwn_recon.py -t <TARGET_IP> --dry-run
+python3 netweave.py 10.10.10.10 --no-ai
 ```
 
 ---
 
-## 📂 Generated Payloads
+# ⚔️ Sectumsempra v1.0 - Green Engine
 
-After execution completes, NetWeave generates multiple targeted scripts inside your directory:
+**Sectumsempra** is the second stage of the execution architecture. It acts as the pipeline muscle—sending "invisible slashes" of non-interactive code to automate payload compilation and post-exploitation stagers based entirely on the JSON intelligence data contract generated by NetWeave.
 
-* `netweave_<target>_<timestamp>.ps1` — PowerShell Execution Script
-* `netweave_<target>_<timestamp>.sh` — Bash Execution Script
-* `netweave_<target>_<timestamp>_exec.py` — Python Execution Script
-* `netweave_<target>_<timestamp>.json` — Attack Summary & Command Metrics
+```text
+TARGET ──► ATTACK PATH ──► FOOTHOLD PAYLOAD ──► REVERSE SHELL ──► PRIVILEGE ESCALATION
+```
 
-### Executing Payloads
+## 📦 Features v1.0
 
-#### Linux/macOS
+* **Zero-Prompt Context Awareness:** Instantly reads and processes the latest `netweave_*.json` contract data found inside the local workspace path.
+* **Dynamic Adapter Tracking:** Automatically discovers network topologies via `netifaces`, prioritizing TryHackMe/HackTheBox connection layers (`tun0`) as the LHOST parameter.
+* **Multi-Platform Stager Assembly:** Compiles completely unattended, non-interactive stagers (`.sh` or `.ps1`) based on target metadata constraints.
+* **Asynchronous Background Listener:** Native multi-threaded socket server that automatically binds to your target LPORT, dropping you straight into interactive reverse shells.
+* **Post-Exploitation Injection:** Embedded, silent download loops designed to pull down memory auditing toolsets (LinPEAS/WinPEAS) the moment the connection settles.
+
+---
+
+## 🎯 Unified Speedrun Workflow
+
+Follow this clean command loop to run an assessment end-to-end within a single active terminal screen:
+
+### 1. The Assessment Phase (NetWeave)
+Run the Cyan engine to build the telemetry profile contract:
 ```bash
-# Bash
-chmod +x netweave_*.sh
-./netweave_<TARGET_IP>_<TIMESTAMP>.sh
-
-# Python
-python3 netweave_*_exec.py
-
-# PowerShell
-pwsh ./netweave_*.ps1
+python3 netweave.py 10.10.10.10
 ```
 
-#### Windows
-```powershell
-.\netweave_<TARGET_IP>_<TIMESTAMP>.ps1
+### 2. The Weaponization Phase (Sectumsempra)
+Execute the Green engine in the exact same workspace window:
+```bash
+python3 sectumsempra.py
 ```
+*This instantly imports the generated JSON file, binds a background listener socket, and drops a custom stager file like `payload_linux_10_10_10_10.sh` into your folder.*
+
+### 3. Trigger & Land Foothold
+Fire your exploit using the compiled stager script on the target system. The session hooks back into your active terminal process automatically, yielding the shell window.
+
+---
+
+## 📋 Output Format Specification
+
+NetWeave generates a machine-readable JSON object named `netweave_<target_ip>.json`:
+
+```json
+{
+  "target": "10.10.10.10",
+  "timestamp": "20260101_120000",
+  "operating_system": "Linux",
+  "ports": [
+    {"port": 80, "service": "http", "version": "Apache 2.4.41", "notes": ""},
+    {"port": 22, "service": "ssh", "version": "OpenSSH 8.2", "notes": ""}
+  ],
+  "recommended_vector": {
+    "vector_name": "HTTP_Initial_Access",
+    "target_port": 80,
+    "vulnerability_type": "Web Enumeration",
+    "technical_summary": "Primary: gobuster dir -u http://10.10.10.10/..."
+  },
+  "commands": {
+    "primary": "gobuster dir -u http://10.10.10.10/ -w /usr/share/wordlists/dirb/common.txt -t 50",
+    "alternatives": [
+      "nikto -h http://10.10.10.10 -maxtime 120",
+      "enum4linux -a 10.10.10.10"
+    ]
+  }
+}
+```
+
+*Note: NetWeave also generates a companion shell script file (`netweave_<target>.sh`) for immediate manual execution if desired.*
 
 ---
 
 ## 🧙‍♂️ The Council of Wizards
 
-Models vote on attack commands; a higher combination of assigned weight and confidence score generates a stronger strategic vote.
+Models vote on attack commands. The strategic priority is determined by multiplying assigned weight by the confidence score: **Weight × Confidence = Strategic Priority**.
 
-| Model | Role | Weight | Timeout | Best For |
-| :--- | :--- | :--- | :--- | :--- |
-| **qwen2.5-coder:7b** | Battle Mage | 3 | 60s | Fast command generation |
-| **deepseek-r1:8b** | Archivist | 3 | 180s | Deep tactical reasoning |
-| **llama3.2** | Scout | 2 | 30s | Rapid fallback execution |
-| **mistral** | Duelist | 2 | 45s | Balanced performance metrics |
-
----
-
-## ⚙️ Command Line Options
-
-```text
-python3 pwn_recon.py [-h] [-t TARGET] [--dry-run] [--resume]
-```
-
-* `-h, --help` — Show the framework help message
-* `-t, --target` — Target IP address (optional, will prompt interactive mode if omitted)
-* `--dry-run` — Generate output scripts without execution markers
-* `--resume` — Resume from a previous scan session *(Note: not fully implemented)*
+| Model | Role | Weight | Best For |
+| :--- | :--- | :--- | :--- |
+| **qwen2.5-coder:7b** | Battle Mage | 3 | Fast command generation |
+| **deepseek-r1:8b** | Archivist | 3 | Deep tactical reasoning |
+| **llama3.2** | Scout | 2 | Rapid fallback execution |
+| **mistral** | Duelist | 2 | Balanced performance |
 
 ---
 
-## 🛡️ Attack Pattern Fallbacks
+## 🔧 Architecture Integration
 
-If AI models are entirely unavailable or hit a timeout constraint, NetWeave uses hardcoded, built-in fallback patterns:
+NetWeave is Tool 1/3 in the speedrun suite:
+* **NetWeave (Cyan):** Reconnaissance & JSON contract generation
+* **Sectumsempra (Green):** Consumes JSON, auto-detects LHOST, spawns listeners, generates stagers
+* **[Tool 3/3]:** Post-exploitation automation *(Coming Soon)*
 
-| Service | Default Action |
+The JSON contract eliminates manual data transfer between tools. Sectumsempra parses `netweave_<target>.json` automatically.
+
+---
+
+## 🛡自 Fallback Behavior
+
+When components hit resource constraints or experience failures, NetWeave degrades gracefully:
+
+| Failure Mode | Automated Fallback Action |
 | :--- | :--- |
-| **HTTP** | Gobuster directory scan |
-| **SSH** | Hydra brute force testing |
-| **FTP** | Anonymous login vulnerability test |
-| **SMB** | enum4linux infrastructure enumeration |
+| **Nmap Binary Missing** | Raw Python async socket scan on the top 22 CTF ports |
+| **Ollama Service Timeout** | Built-in structural pattern matching (Gobuster/Hydra/enum4linux) |
+| **XML Output Parse Error** | Automated TCP connect validation sweeps |
+| **No Active Models Found** | Hardcoded service-specific attack pattern fallback scripts |
 
 ---
 
-## 📝 Next Tactical Step
+## 🐛 Troubleshooting
 
-Once NetWeave completes processing and isolates the **PRIMARY ATTACK VECTOR**, proceed directly to your exploitation framework. The generated JSON summary contains the complete ranked, voted commands for manual review or secondary pipeline automation.
+* **Error: `aiohttp` or `netifaces` not installed:**
+  Ensure you have initialized and sourced the virtual environment loop (`source .venv/bin/activate`) before running installation strings:
+  ```bash
+  pip install aiohttp netifaces rich
+  ```
+* **Error: Ollama not responding:**
+  Ensure the background execution daemon is currently active:
+  ```bash
+  # Terminal 1
+  ollama serve
 
----
-
-## 🔍 Troubleshooting
-
-**Error:** `"No module named 'requests'"`
-```bash
-pip3 install requests
-```
-
-**Error:** `"Ollama not running"`
-```bash
-# Terminal 1 - Restart the engine
-ollama serve
-
-# Terminal 2 - Verify active tags connection
-curl http://localhost:11434/api/tags
-```
-
-**Issue:** `Nmap XML parse fails`
-* *Behavior:* NetWeave automatically catches this error and falls back to a clean TCP connect scan across common ports.
+  # Terminal 2 - Verify active socket connection
+  curl http://localhost:11434/api/tags
+  ```
+* **Error: No wizards available:**
+  Verify that you have explicitly pulled down your model targets:
+  ```bash
+  ollama pull qwen2.5-coder:7b
+  ```
 
 ---
 
 ## ⚖️ Legal Notice
 
-NetWeave is strictly intended for CTFs, security research, authorized assessments, and isolated laboratory environments. Only use NetWeave against systems you own or have explicit, written permission to test. Unauthorized access to computer networks and infrastructure is illegal.
+NetWeave and Sectumsempra are intended exclusively for authorized CTF competitions (HackTheBox, TryHackMe), penetration testing labs, and sanctioned security assessments. Always obtain explicit written authorization before scanning or exploiting target systems. Unauthorized access to computer networks is illegal.
