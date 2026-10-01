@@ -1,225 +1,303 @@
-# ⚡ The 3/3 Local CTF Speedrun Suite
+# The 3/3 CTF Speedrun Suite
 
-An advanced, high-performance, fully offline attack pipeline engineered for competitive HackTheBox (HTB) and TryHackMe (THM) virtual lab environments. This architecture eliminates manual overhead, splits heavy workloads to prevent VM lag, and operates entirely within local infrastructure out of a single terminal window.
+**A high-performance, fully offline, automated penetration testing pipeline for HackTheBox (HTB) and TryHackMe (THM).**
 
 ```text
-  [Tool 1: NetWeave] ──(Discovers & Parses JSON)──► [Tool 2: Sectumsempra]
-                                                           │
-                                            (Auto-detects LHOST, fires listener,
-                                             builds stagers, chains to Tool 3)
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   <TARGET_IP>   │────▶│    NetWeave      │────▶│  Sectumsempra   │
+│                 │     │    v9.2 Cyan     │     │   v1.2 Green    │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                              │                            │
+                    ┌─────────┴──────────┐                 │
+                    ▼                    ▼                 ▼
+            ┌──────────────┐    ┌──────────────┐   ┌─────────────────┐
+            │   Nmap/OS    │    │  Ollama AI   │   │   Morsmordre    │
+            │  Detection   │    │   Council    │   │    v1.0 Red     │
+            └──────────────┘    └──────────────┘   │   Autonomous    │
+                                                   │   Enumeration   │
+                                                   └─────────────────┘
 ```
+
+**Core Principle:** Zero cloud dependencies. 100% local Ollama inference. Seamless stdin/stdout bridging between tools.
 
 ---
 
-# #️⃣ NetWeave v9.0 - Cyan Engine (Council of Wizards Edition)
+## 📦 The Three Engines
 
-**NetWeave** is the first stage of the **3/3 Local CTF Speedrun Suite**, a high-performance, fully offline attack pipeline designed for HackTheBox (HTB) and TryHackMe (THM) lab environments. It operates as a local reconnaissance engine that processes telemetry through a "Council of Wizards" (multiple local Ollama models) to determine the optimal attack path, then serializes findings into a structured JSON contract for consumption by **Sectumsempra (Tool 2/3)**.
+| Tool | Color | Function | Input | Output |
+|------|-------|----------|-------|--------|
+| **NetWeave** | Cyan | OS-aware reconnaissance & AI correlation | `<TARGET_IP>` | `netweave_<TARGET>.json` |
+| **Sectumsempra** | Green | Payload generation, listener, handoff | `netweave_<TARGET>.json` | Active socket bridge |
+| **Morsmordre** | Red | Autonomous post-exploitation enumeration | Socket via stdin/stdout | `morsmordre_<TARGET>_<TIME>.json` |
 
-```text
-┌─────────────────┐     ┌──────────────────────────────┐     ┌─────────────────┐
-│   TARGET IP     │────▶│  NetWeave v9.0 Cyan Engine   │────▶│  netweave_      │
-│                 │     │  ├─ Async Nmap Scan          │     │  <target>.json  │
-└─────────────────┘     │  ├─ Fallback Socket Probe     │     └─────────────────┘
-                        │  └─ Council of Wizards (AI)   │              │
-                        │     ├─ qwen2.5-coder (Mage) │              ▼
-                        │     ├─ deepseek-r1 (Archivist)│     ┌─────────────────┐
-                        │     ├─ llama3.2 (Scout)       │     │  Sectumsempra   │
-                        │     └─ mistral (Duelist)      │────▶│  (Tool 2/3)     │
-                        └──────────────────────────────┘     │  Green Engine   │
-                                                             └─────────────────┘
-```
+---
 
-**Key Principle:** Zero cloud dependencies. Zero API keys. 100% local inference.
+## 🚀 Quick Start
 
-## 📦 Features v9.0
+### 1. Install Dependencies
 
-* **Council of Wizards:** Multi-model voting system using local Ollama instances (`qwen2.5-coder`, `deepseek-r1`, `llama3.2`, `mistral`).
-* **Asynchronous Architecture:** Non-blocking I/O with asyncio for high-speed port scanning.
-* **Intelligent Fallbacks:** Raw Python socket probes when Nmap is unavailable; pattern-based attacks when AI is offline.
-* **Structured Contract:** Outputs `netweave_<target>.json` for seamless pipeline integration with Tool 2/3.
-* **Rich Terminal UI:** Cyan-themed ANSI output with real-time status indicators.
-* **Air-Gapped Ready:** Functions completely offline after initial model download.
-
-## 🛠️ Requirements
-
-### System Requirements
-* **OS:** Linux (Kali/Ubuntu/Debian) or macOS
-* **Python:** 3.10+
-* **Ollama:** Local LLM runtime (ollama.com)
-* **System Tools:** `nmap` (optional but recommended)
-
-### Python Dependencies (System-wide for Kali)
 ```bash
+# System dependencies
+sudo apt update
+sudo apt install -y nmap python3-pip
+
+# Python dependencies (System-wide for Kali to bypass PEP 668)
 sudo apt install -y python3-aiohttp python3-rich python3-netifaces
-```
 
-## 🚀 Deployment
-
-### 1. Install Ollama
-```bash
+# Install Ollama (local AI)
 curl -fsSL https://ollama.com/install.sh | sh
-```
-*Note: Ollama automatically registers and runs as a background system service on Linux.*
 
-### 2. Download the Council
-In your terminal, pull down the targeted open-source models:
-```bash
-# Required (Battle Mage - fast command generation)
+# Pull Council Models
 ollama pull qwen2.5-coder:7b
-
-# Recommended (Archivist - deep reasoning)
-ollama pull deepseek-r1:8b
-
-# Optional (Scout & Duelist - fallback analysis)
 ollama pull llama3.2
 ollama pull mistral
 ```
-Verify the models are pulled successfully:
+
+### 2. Start the Pipeline
+
+**Terminal 1 - Start AI Engine:**
 ```bash
-ollama list
+ollama serve
 ```
 
-### 3. Run NetWeave
-```bash
-python3 netweave.py <TARGET_IP>
-```
-For pure offline mode without AI processing:
-```bash
-python3 netweave.py <TARGET_IP> --no-ai
-```
-
----
-
-# ⚔️ Sectumsempra v1.0 - Green Engine
-
-**Sectumsempra** is the second stage of the execution architecture. It acts as the pipeline muscle—sending "invisible slashes" of non-interactive code to automate payload compilation and post-exploitation stagers based entirely on the JSON intelligence data contract generated by NetWeave.
-
-```text
-TARGET ──► ATTACK PATH ──► FOOTHOLD PAYLOAD ──► REVERSE SHELL ──► PRIVILEGE ESCALATION
-```
-
-## 📦 Features v1.0
-
-* **Zero-Prompt Context Awareness:** Instantly reads and processes the latest `netweave_*.json` contract data found inside the local workspace path.
-* **Dynamic Adapter Tracking:** Automatically discovers network topologies via `netifaces`, prioritizing TryHackMe/HackTheBox connection layers (`tun0`) as the LHOST parameter.
-* **Multi-Platform Stager Assembly:** Compiles completely unattended, non-interactive stagers (`.sh` or `.ps1`) based on target metadata constraints.
-* **Asynchronous Background Listener:** Native multi-threaded socket server that automatically binds to your target LPORT, dropping you straight into interactive reverse shells.
-* **Post-Exploitation Injection:** Embedded, silent download loops designed to pull down memory auditing toolsets (LinPEAS/WinPEAS) the moment the connection settles.
-
----
-
-## 🎯 Unified Speedrun Workflow
-
-Follow this clean command loop to run an assessment end-to-end within a single active terminal screen:
-
-### 1. The Assessment Phase (NetWeave)
-Run the Cyan engine to build the telemetry profile contract:
+**Terminal 2 - Run Reconnaissance:**
 ```bash
 python3 netweave.py <TARGET_IP>
 ```
 
-### 2. The Weaponization Phase (Sectumsempra)
-Execute the Green engine in the exact same workspace window:
+**Terminal 3 - Execute & Listen:**
 ```bash
 python3 sectumsempra.py
+# Displays payload command, starts listener
 ```
-*This instantly imports the generated JSON file, binds a background listener socket, and drops a custom stager file like `payload_linux_<TARGET_IP>.sh` into your folder.*
 
-### 3. Trigger & Land Foothold
-Fire your exploit using the compiled stager script on the target system. The session hooks back into your active terminal process automatically, yielding the shell window.
+**On Target Machine:**
+```bash
+# Copy the displayed command from sectumsempra output
+bash payload_linux_<TARGET_IP>.sh
+
+# Or for Windows:
+powershell -ExecutionPolicy Bypass -File payload_windows_<TARGET_IP>.ps1
+```
+
+*Result: Morsmordre activates automatically and begins autonomous enumeration.*
 
 ---
 
-## 📋 Output Format Specification
+## 🔧 Individual Tool Reference
 
-NetWeave generates a machine-readable JSON object named `netweave_<target_ip>.json`:
+### NetWeave v9.2 (Cyan Engine)
+**Purpose:** Discovers target OS and services, correlates attack vectors via local AI.
 
+**Usage:**
+```bash
+python3 netweave.py <TARGET_IP>              # Full AI correlation
+python3 netweave.py <TARGET_IP> --no-ai      # Pattern-only (faster)
+```
+**Output:** `netweave_<TARGET_IP>.json`
+
+**Features:**
+* Nmap OS detection with heuristic fallback
+* Async port scanning (top 22 CTF ports)
+* Council of Wizards (multi-model voting)
+* Structured JSON contract generation
+
+### Sectumsempra v1.2 (Green Engine)
+**Purpose:** Generates OS-appropriate payloads, binds listener, bridges shell to Morsmordre.
+
+**Usage:**
+```bash
+python3 sectumsempra.py                      # Auto-find latest contract
+python3 sectumsempra.py --contract netweave_<TARGET>.json
+```
+**Output:**
+* `payload_linux_<TARGET>.sh` or `payload_windows_<TARGET>.ps1`
+* Active listener on port 4444
+* Automatic Morsmordre handoff on connection
+
+**Features:**
+* Auto-detects `tun0` interface
+* OS-aware payload generation (bash/PowerShell)
+* Async socket server
+* Seamless stdin/stdout bridging to Tool 3/3
+
+### Morsmordre v1.0 (Red Engine)
+**Purpose:** Autonomous post-exploitation enumeration and credential harvesting.
+
+**Usage:** Never run manually. Spawned automatically by Sectumsempra.
+
+**Output:** `morsmordre_<TARGET>_<TIMESTAMP>.json`
+
+**Enumeration Commands:**
+
+| OS | Commands |
+| :--- | :--- |
+| **Linux** | `id`, `uname`, `/etc/passwd`, `/etc/shadow`, `sudo -l`, SUID find, `netstat`, `ps aux`, `crontab` |
+| **Windows** | `whoami`, `systeminfo`, `net user`, `ipconfig`, `tasklist`, registry queries |
+
+**Loot Categories:**
+* **Credentials:** `passwd`, `shadow`, database configurations, tokens
+* **Privilege Escalation:** `sudo` rights, SUID binaries, capabilities
+* **Network:** active connections, local interfaces, routing tables
+* **Persistence:** `cron` jobs, startup services, user registry keys
+
+---
+
+## 📋 JSON Schema
+
+### NetWeave Contract
 ```json
 {
-  "target": "10.10.10.10",
-  "timestamp": "20260101_120000",
+  "target": "<TARGET_IP>",
   "operating_system": "Linux",
+  "os_confidence": 91,
   "ports": [
-    {"port": 80, "service": "http", "version": "Apache 2.4.41", "notes": ""},
     {"port": 22, "service": "ssh", "version": "OpenSSH 8.2", "notes": ""}
   ],
   "recommended_vector": {
-    "vector_name": "HTTP_Initial_Access",
-    "target_port": 80,
-    "vulnerability_type": "Web Enumeration",
-    "technical_summary": "Primary: gobuster dir -u http://10.10.10.10/..."
+    "vector_name": "SSH_Enumeration",
+    "target_port": 22,
+    "vulnerability_type": "Configuration",
+    "technical_summary": "Primary attack vector"
   },
   "commands": {
-    "primary": "gobuster dir -u http://10.10.10.10/ -w /usr/share/wordlists/dirb/common.txt -t 50",
-    "alternatives": [
-      "nikto -h http://10.10.10.10 -maxtime 120",
-      "enum4linux -a 10.10.10.10"
-    ]
+    "primary": "hydra -l root -P rockyou.txt ssh://<TARGET_IP>",
+    "alternatives": [],
+    "source": "Council"
   }
 }
 ```
 
-*Note: NetWeave also generates a companion shell script file (`netweave_<target>.sh`) for immediate manual execution if desired.*
+### Morsmordre Loot
+```json
+{
+  "target": "<TARGET_IP>",
+  "os": "Linux",
+  "commands_executed": 11,
+  "loot": [
+    {
+      "timestamp": "2026-01-01T12:00:00",
+      "category": "credentials",
+      "data": "root:$6$xyz...",
+      "source": "cat /etc/shadow"
+    }
+  ]
+}
+```
 
 ---
 
-## 🧙‍♂️ The Council of Wizards
+## 🛠️ Architecture Details
 
-Models vote on attack commands. The strategic priority is determined by multiplying assigned weight by the confidence score: **Weight × Confidence = Strategic Priority**.
+### Data Flow
+1. **NetWeave** scans target → generates contract JSON on disk
+2. **Sectumsempra** reads contract → generates script payload → binds local background listener
+3. **Target** machine executes payload → connects back to active listener
+4. **Sectumsempra** spawns **Morsmordre** process with socket bridged directly to stdin/stdout
+5. **Morsmordre** injects automated commands → parses return responses → writes structural loot JSON
 
-| Model | Role | Weight | Best For |
-| :--- | :--- | :--- | :--- |
-| **qwen2.5-coder:7b** | Battle Mage | 3 | Fast command generation |
-| **deepseek-r1:8b** | Archivist | 3 | Deep tactical reasoning |
-| **llama3.2** | Scout | 2 | Rapid fallback execution |
-| **mistral** | Duelist | 2 | Balanced performance |
-
----
-
-## 🔧 Architecture Integration
-
-NetWeave is Tool 1/3 in the speedrun suite:
-* **NetWeave (Cyan):** Reconnaissance & JSON contract generation
-* **Sectumsempra (Green):** Consumes JSON, auto-detects LHOST, spawns listeners, generates stagers
-* **[Tool 3/3]:** Post-exploitation automation *(Coming Soon)*
-
-The JSON contract eliminates manual data transfer between tools. Sectumsempra parses `netweave_<target>.json` automatically.
-
----
-
-## 🛡️ Fallback Behavior
-
-When components hit resource constraints or experience failures, NetWeave degrades gracefully:
-
-| Failure Mode | Automated Fallback Action |
-| :--- | :--- |
-| **Nmap Binary Missing** | Raw Python async socket scan on the top 22 CTF ports |
-| **Ollama Service Timeout** | Built-in structural pattern matching (Gobuster/Hydra/enum4linux) |
-| **XML Output Parse Error** | Automated TCP connect validation sweeps |
-| **No Active Models Found** | Hardcoded service-specific attack pattern fallback scripts |
+### Communication Protocol
+* **Tool 1 → 2:** Local JSON state contract file on system storage
+* **Tool 2 → 3:** Unix stdin/stdout pipes (socket descriptors bridging)
+* **Tool 3 → Disk:** Normalized JSON loot metric file output
 
 ---
 
 ## 🐛 Troubleshooting
 
-* **Error: `externally-managed-environment` on pip install:**
-  Kali Linux blocks raw pip installs globally. Install dependencies directly via apt:
+### NetWeave Issues
+* **"Ollama not responding"**
   ```bash
-  sudo apt install -y python3-aiohttp python3-rich python3-netifaces
-  ```
-* **Error: `address already in use` when starting Ollama:**
-  Ollama is already running as a systemd service. Verify your connection directly:
-  ```bash
+  # Terminal 1 - Restart the execution daemon
+  ollama serve
+  # Verify connection status
   curl http://localhost:11434/api/tags
   ```
-* **Error: No wizards available / Model not found:**
-  Ensure you pulled the base models to your local endpoint before running the scripts:
+* **"No services found"**
+  * Check target connectivity: `ping <TARGET_IP>`
+  * Verify target isn't blocking probes: `nmap -Pn <TARGET_IP>`
+* **"Server disconnected" (Ollama crash)**
+  * Reduce engine model load: Run with `--no-ai` flag to pass raw diagnostics
+  * Hard restart service: `pkill ollama && ollama serve`
+
+### Sectumsempra Issues
+* **"No NetWeave contract found"**
   ```bash
-  ollama pull qwen2.5-coder:7b
+  # Run NetWeave deployment stage first
+  python3 netweave.py <TARGET_IP>
+  # Or supply explicit parameter definitions path
+  python3 sectumsempra.py --contract ./netweave_<TARGET>.json
   ```
+* **"Address already in use" (Port 4444)**
+  ```bash
+  # Terminate conflicting active processing sockets
+  sudo lsof -ti:4444 | xargs kill -9
+  ```
+* **"Payload won't execute on target"**
+  * Verify LHOST detection: Confirm active `tun0` interface configurations exist
+  * Manual override adjustments: Append raw configuration variables directly inside the payload file asset
+
+### Morsmordre Issues
+* **"No output from commands"**
+  * Ensure the process is automatically spawned by Sectumsempra (do not run standalone)
+  * Verify target binary execution path environment variables are valid
+* **"Commands timeout"**
+  * Target lab box might be experiencing resource constraints or non-interactive shell states
+  * Run `echo $SHELL` on target to verify environment initialization defaults to `/bin/bash` or equivalent shell configurations
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Set By | Description |
+|:---|:---|:---|
+| `MORSMORDRE_TARGET` | Sectumsempra | Target lab destination IP address |
+| `MORSMORDRE_OS` | Sectumsempra | Target environment architecture footprint (`Linux`/`Windows`) |
+| `MORSMORDRE_LHOST` | Sectumsempra | Attacker local connection adapter tunnel IP (`tun0`) |
+| `OLLAMA_URL` | User Override | Target address for local loopback AI communications (default: `localhost:11434`) |
+
+---
+
+## 📁 File Structure
+
+```text
+project/
+├── netweave.py          # Tool 1/3 - Cyan Engine
+├── sectumsempra.py      # Tool 2/3 - Green Engine
+├── morsmordre.py        # Tool 3/3 - Red Engine
+├── README.md            # This framework guide file
+├── netweave_*.json      # Generated target context contracts
+├── payload_*.sh         # Output Linux script stagers
+├── payload_*.ps1        # Output Windows script stagers
+└── morsmordre_*.json    # Normalized system loot capture files
+```
+
+---
+
+## 🎯 Execution Checklist
+
+1. [ ] Ollama service validation check complete (`ollama serve` active)
+2. [ ] Local model dependencies downloaded (`ollama list` confirms target wizards)
+3. [ ] Run Cyan reconnaissance phase: `python3 netweave.py <TARGET>`
+4. [ ] Verify compilation contract creation state: `ls netweave_*.json`
+5. [ ] Execute Green staging bridge pipeline handler: `python3 sectumsempra.py`
+6. [ ] Isolate stager code payload information block and copy text parameters
+7. [ ] Execute stager payload assembly vector directly onto the remote lab system
+8. [ ] Verify automatic Morsmordre Red post-exploitation execution loop engagement
+9. [ ] Extract final local machine loot reports file asset: `ls morsmordre_*.json`
 
 ---
 
 ## ⚖️ Legal Notice
 
-NetWeave and Sectumsempra are intended exclusively for authorized CTF competitions (HackTheBox, TryHackMe), penetration testing labs, and sanctioned security assessments. Always obtain explicit written authorization before scanning or exploiting target systems. Unauthorized access to computer networks is illegal.
+Authorized Use Only. This suite is designed exclusively for authorized CTF competitions (HackTheBox, TryHackMe), sanctioned penetration testing laboratories, and educational security research in isolated lab environments. Requirements include explicit written authorization for target systems, compliance with local computer crime laws (CFAA, etc.), and network owner permission. Unauthorized access to computer systems is highly illegal. The authors assume no liability for misuse.
+
+---
+
+## 📝 Version Information
+
+| Tool | Version | Role | Status |
+|:---|:---|:---|:---|
+| **NetWeave** | v9.2 | Reconnaissance Analysis | Stable |
+| **Sectumsempra** | v1.2 | Exploitation Staging Bridge | Stable |
+| **Morsmordre** | v1.0 | Post-Exploitation Triage | Stable |
