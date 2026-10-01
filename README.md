@@ -1,6 +1,6 @@
 # The 3/3 CTF Speedrun Suite
 
-**A high-performance, fully offline, automated penetration testing pipeline for HackTheBox (HTB) and TryHackMe (THM).**
+**A high performance, fully offline, automated penetration testing pipeline for HackTheBox (HTB) and TryHackMe (THM).**
 
 ```text
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
