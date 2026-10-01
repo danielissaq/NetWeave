@@ -81,11 +81,11 @@ ollama list
 
 ### 3. Run NetWeave
 ```bash
-python3 netweave.py 10.10.10.10
+python3 netweave.py <TARGET_IP>
 ```
 For pure offline mode without AI processing:
 ```bash
-python3 netweave.py 10.10.10.10 --no-ai
+python3 netweave.py <TARGET_IP> --no-ai
 ```
 
 ---
@@ -115,7 +115,7 @@ Follow this clean command loop to run an assessment end-to-end within a single a
 ### 1. The Assessment Phase (NetWeave)
 Run the Cyan engine to build the telemetry profile contract:
 ```bash
-python3 netweave.py 10.10.10.10
+python3 netweave.py <TARGET_IP>
 ```
 
 ### 2. The Weaponization Phase (Sectumsempra)
