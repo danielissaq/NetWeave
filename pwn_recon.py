@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-NetWeave v9.0 - Cyan Engine
-CTF Reconnaissance & Attack Path Correlation
-Optimized for HTB/THM Speedrun 
+NetWeave v9.0 - Cyan Engine (Council of Wizards Edition)
+High-Performance Offline CTF Reconnaissance & Attack Path Correlation
+Optimized for HTB/THM Air-Gapped Environments
 """
 
 import asyncio
@@ -14,18 +14,16 @@ import re
 import socket
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Optional imports with graceful degradation
 try:
     import aiohttp
     ASYNC_HTTP = True
 except ImportError:
     ASYNC_HTTP = False
-    print("[!] aiohttp not installed. Install with: pip install aiohttp")
 
 try:
     from rich.console import Console
@@ -37,16 +35,20 @@ except ImportError:
 
 # Configuration
 class Config:
-    """Environment and runtime configuration"""
-    VENICE_API_URL = os.getenv("VENICE_API_URL", "https://api.venice.ai/api/v1/chat/completions")
-    VENICE_API_KEY = os.getenv("VENICE_API_KEY", "")
-    AI_MODEL = os.getenv("VENICE_MODEL", "default")
-    AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "45"))
+    OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+    OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", "http://localhost:11434/api/tags")
+    AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "90"))
     CONCURRENT_SCANS = 50
-    TOP_CTF_PORTS = [21, 22, 23, 25, 53, 80, 88, 110, 111, 135, 139, 143, 443, 445, 464, 993, 995, 3306, 3389, 5985]
+    TOP_CTF_PORTS = [21, 22, 23, 25, 53, 80, 88, 110, 111, 135, 139, 143, 443, 445, 464, 993, 995, 3306, 3389, 5985, 8080, 8443]
+    
+    COUNCIL = {
+        "qwen2.5-coder:7b": {"role": "Battle Mage", "weight": 3},
+        "deepseek-r1:8b": {"role": "Archivist", "weight": 3},
+        "llama3.2": {"role": "Scout", "weight": 2},
+        "mistral": {"role": "Duelist", "weight": 2},
+    }
 
 class Colors:
-    """ANSI color codes for terminal output"""
     CYAN = '\033[96m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
@@ -66,10 +68,6 @@ class Colors:
     @classmethod
     def yellow(cls, text: str) -> str:
         return f"{cls.YELLOW}{text}{cls.ENDC}"
-    
-    @classmethod
-    def red(cls, text: str) -> str:
-        return f"{cls.RED}{text}{cls.ENDC}"
 
 @dataclass
 class Service:
@@ -98,7 +96,6 @@ class NetWeave:
         self.session: Optional[aiohttp.ClientSession] = None
         
     def banner(self):
-        """Display ASCII banner with cyan styling"""
         banner_text = """
     ███╗   ██╗███████╗████████╗██╗    ██╗███████╗ █████╗ ██╗   ██╗███████╗
     ████╗  ██║██╔════╝╚══██╔══╝██║    ██║██╔════╝██╔══██╗██║   ██║██╔════╝
@@ -110,15 +107,14 @@ class NetWeave:
         if self.console:
             self.console.print(Panel(
                 Text(banner_text, style="bold cyan"),
-                subtitle="[cyan]v9.0 Cyan Engine - HTB/THM Speedrun Suite[/cyan]",
+                subtitle="[cyan]v9.0 Cyan Engine - Council of Wizards[/cyan]",
                 border_style="cyan"
             ))
         else:
             print(Colors.cyan(banner_text))
-            print(Colors.cyan(">>> NetWeave v9.0 - Cyan Engine - HTB/THM Speedrun Suite <<<\n"))
+            print(Colors.cyan(">>> NetWeave v9.0 - Cyan Engine - Council of Wizards <<<\n"))
     
     def status(self, message: str, level: str = "info"):
-        """Print status message with appropriate styling"""
         indicators = {
             "info": ("[*]", Colors.BLUE),
             "success": ("[+]", Colors.GREEN),
@@ -135,7 +131,6 @@ class NetWeave:
             print(f"{color}{indicator} {message}{Colors.ENDC}")
     
     def validate_target(self, ip_str: str) -> Optional[str]:
-        """Validate target IP with safety checks"""
         try:
             ip = ipaddress.ip_address(ip_str)
             if ip.is_loopback:
@@ -150,8 +145,26 @@ class NetWeave:
             self.status(f"Invalid IP address: {ip_str}", "error")
             return None
     
+    async def check_ollama(self) -> bool:
+        if not ASYNC_HTTP:
+            return False
+        try:
+            async with self.session.get(Config.OLLAMA_TAGS_URL, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    models = [m["name"] for m in data.get("models", [])]
+                    if models:
+                        self.status(f"Council ready with {len(models)} wizards", "success")
+                        return True
+                    else:
+                        self.status("No local models found. Run: ollama pull qwen2.5-coder:7b", "warning")
+                        return False
+                return False
+        except Exception as e:
+            self.status(f"Ollama not responding: {e}", "warning")
+            return False
+    
     async def nmap_scan(self, target: str) -> Host:
-        """Execute Nmap scan with XML output parsing"""
         xml_file = f"/tmp/netweave_{target.replace('.', '_')}_{os.getpid()}.xml"
         
         if os.path.exists(xml_file):
@@ -175,24 +188,21 @@ class NetWeave:
             
             try:
                 _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-                if proc.returncode != 0 and stderr:
-                    self.status(f"Nmap stderr: {stderr.decode().strip()}", "warning")
             except asyncio.TimeoutError:
                 proc.kill()
-                self.status("Nmap scan timed out, using fallback", "warning")
+                self.status("Nmap timed out, using fallback", "warning")
                 return await self.fallback_socket_scan(target)
                 
         except FileNotFoundError:
-            self.status("Nmap not found in PATH, using fallback scanner", "warning")
+            self.status("Nmap not found, using fallback scanner", "warning")
             return await self.fallback_socket_scan(target)
         except Exception as e:
-            self.status(f"Nmap execution failed: {e}", "error")
+            self.status(f"Nmap failed: {e}", "error")
             return await self.fallback_socket_scan(target)
         
         host = Host(ip=target)
         
         if not os.path.exists(xml_file) or os.path.getsize(xml_file) < 100:
-            self.status("Nmap XML output missing or empty, using fallback", "warning")
             return await self.fallback_socket_scan(target)
         
         try:
@@ -231,7 +241,6 @@ class NetWeave:
                                 version = svc_elem.get('version', '')
                                 service.version = f"{product} {version}".strip()
                                 service.cpe = svc_elem.get('cpe', '')
-                                service.banner = svc_elem.get('extrainfo', '')
                             
                             for script in port_elem.findall('script'):
                                 script_id = script.get('id')
@@ -242,16 +251,12 @@ class NetWeave:
                             host.services.append(service)
             
             if not host.services:
-                self.status("Nmap found no open ports, validating with fallback", "warning")
                 fallback = await self.fallback_socket_scan(target)
                 if fallback.open_ports:
                     return fallback
                     
-        except ET.ParseError as e:
-            self.status(f"XML parsing error: {e}", "error")
-            return await self.fallback_socket_scan(target)
         except Exception as e:
-            self.status(f"Unexpected error parsing Nmap results: {e}", "error")
+            self.status(f"XML parse error: {e}", "error")
             return await self.fallback_socket_scan(target)
         finally:
             try:
@@ -259,12 +264,11 @@ class NetWeave:
             except:
                 pass
         
-        self.status(f"Nmap scan complete: {len(host.services)} services identified", "success")
+        self.status(f"Nmap complete: {len(host.services)} services", "success")
         return host
     
     async def fallback_socket_scan(self, target: str) -> Host:
-        """Fallback raw socket scanner for top 20 CTF ports"""
-        self.status("Initiating fallback TCP socket probe...", "scan")
+        self.status("Initiating fallback TCP probe...", "scan")
         
         host = Host(ip=target)
         open_ports = []
@@ -289,10 +293,10 @@ class NetWeave:
         open_ports = sorted([p for p in results if p is not None])
         
         if not open_ports:
-            self.status("No open ports detected on fallback scan", "warning")
+            self.status("No open ports found", "warning")
             return host
         
-        self.status(f"Fallback scan found {len(open_ports)} open ports: {open_ports}", "success")
+        self.status(f"Fallback found {len(open_ports)} ports: {open_ports}", "success")
         host.open_ports = open_ports
         
         service_map = {
@@ -300,187 +304,221 @@ class NetWeave:
             80: 'http', 88: 'kerberos', 110: 'pop3', 111: 'rpcbind',
             135: 'msrpc', 139: 'netbios', 143: 'imap', 443: 'https',
             445: 'smb', 464: 'kpasswd', 993: 'imaps', 995: 'pop3s',
-            3306: 'mysql', 3389: 'rdp', 5985: 'winrm'
+            3306: 'mysql', 3389: 'rdp', 5985: 'winrm', 8080: 'http-proxy', 8443: 'https-alt'
         }
         
         for port in open_ports:
-            svc = Service(
-                port=port,
-                name=service_map.get(port, 'unknown'),
-                state='open'
-            )
+            svc = Service(port=port, name=service_map.get(port, 'unknown'), state='open')
             host.services.append(svc)
         
         return host
     
-    async def query_venice_ai(self, host: Host) -> Dict[str, Any]:
-        """Query Venice AI for attack path analysis"""
-        if not ASYNC_HTTP or not Config.VENICE_API_KEY:
-            self.status("AI analysis skipped - no API access", "warning")
-            return self._generate_local_analysis(host)
-        
-        services_text = "\n".join([
-            f"Port {s.port}/{s.protocol}: {s.name} {s.version}"
-            for s in host.services
-        ])
-        
-        prompt = f"""Analyze this CTF target and respond ONLY with valid JSON.
+    async def summon_wizard(self, model: str, scan_summary: str) -> Optional[Dict]:
+        prompt = f"""You are a CTF penetration testing expert. Analyze this scan and provide ONE best attack command.
 
-Target: {host.ip}
-Operating System: {host.os or "Unknown"}
-Open Services:
-{services_text}
+SCAN:
+{scan_summary}
 
-Respond with exactly this JSON structure:
-{{
-  "target": "{host.ip}",
-  "operating_system": "Linux|Windows|Unknown",
-  "ports": [
-    {{"port": 80, "service": "http", "version": "Apache 2.4.41", "notes": "Potential exploit vector"}}
-  ],
-  "recommended_vector": {{
-    "vector_name": "string",
-    "target_port": 80,
-    "vulnerability_type": "string",
-    "technical_summary": "string"
-  }}
-}}
+Respond ONLY with:
+VULN: [brief vulnerability name]
+[CMD] [exact command to run] [CMD]
+CONFIDENCE: [High/Medium/Low]"""
 
-Do not include any markdown formatting, explanations, or text outside the JSON object."""
-
-        headers = {
-            "Authorization": f"Bearer {Config.VENICE_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
         payload = {
-            "model": Config.AI_MODEL,
-            "messages": [
-                {"role": "system", "content": "You are a CTF penetration testing expert. Output only valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.2,
-            "max_tokens": 800
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3, "num_predict": 256}
         }
-        
-        self.status("Transmitting telemetry to Venice AI...", "scan")
         
         try:
             async with self.session.post(
-                Config.VENICE_API_URL,
-                headers=headers,
+                Config.OLLAMA_URL,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=Config.AI_TIMEOUT)
             ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    self.status(f"API error {resp.status}: {text[:100]}", "error")
-                    return self._generate_local_analysis(host)
-                
-                data = await resp.json()
-                content = data['choices'][0]['message']['content']
-                
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    try:
-                        result = json.loads(json_match.group(0))
-                        self.status("AI analysis received and parsed", "success")
-                        return result
-                    except json.JSONDecodeError as e:
-                        self.status(f"JSON parse error: {e}", "error")
-                        return self._generate_local_analysis(host)
-                else:
-                    self.status("No JSON found in AI response", "warning")
-                    return self._generate_local_analysis(host)
+                if resp.status == 200:
+                    data = await resp.json()
+                    text = data.get('response', '')
                     
+                    cmd_match = re.search(r'\[CMD\]\s*(.*?)\s*\[CMD\]', text, re.DOTALL)
+                    cmd = cmd_match.group(1).strip() if cmd_match else None
+                    
+                    conf_match = re.search(r'CONFIDENCE:\s*(High|Medium|Low)', text, re.I)
+                    conf = conf_match.group(1).lower() if conf_match else "medium"
+                    
+                    vuln_match = re.search(r'VULN:\s*(.+?)(?:\n|$)', text, re.I)
+                    vuln = vuln_match.group(1).strip() if vuln_match else "Unknown"
+                    
+                    if cmd and len(cmd) > 5:
+                        return {
+                            "model": model,
+                            "command": cmd,
+                            "vuln": vuln,
+                            "confidence": conf,
+                            "raw": text[:200]
+                        }
         except asyncio.TimeoutError:
-            self.status("AI analysis timed out", "warning")
-            return self._generate_local_analysis(host)
+            self.status(f"  ⚠ {model}: Timed out", "warning")
         except Exception as e:
-            self.status(f"AI query failed: {e}", "error")
-            return self._generate_local_analysis(host)
-    
-    def _generate_local_analysis(self, host: Host) -> Dict[str, Any]:
-        """Generate analysis locally when AI is unavailable"""
-        self.status("Generating local attack pattern analysis...", "info")
+            self.status(f"  ⚠ {model}: Failed", "warning")
         
-        ports_data = []
-        recommended_port = None
-        recommended_service = None
+        return None
+    
+    async def council_deliberation(self, host: Host) -> Tuple[str, List[str]]:
+        self.status("The Council of Wizards convenes...", "info")
+        
+        summary = f"Target: {host.ip}\nOpen Ports: {', '.join(map(str, host.open_ports))}\n\n"
+        for svc in host.services:
+            summary += f"Port {svc.port}/{svc.protocol}: {svc.name} {svc.version}\n"
+            if svc.scripts:
+                summary += f"  Scripts: {list(svc.scripts.keys())[:3]}\n"
+        
+        available_models = []
+        try:
+            async with self.session.get(Config.OLLAMA_TAGS_URL, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    available_models = [m["name"] for m in data.get("models", [])]
+        except:
+            pass
+        
+        wizards = {k: v for k, v in Config.COUNCIL.items() if k in available_models}
+        
+        if not wizards:
+            self.status("No wizards available, using pattern fallback", "warning")
+            return self._pattern_based_attacks(host)
+        
+        self.status(f"Summoning {len(wizards)} wizards...", "scan")
+        
+        responses = []
+        with ThreadPoolExecutor(max_workers=len(wizards)) as executor:
+            future_to_model = {
+                executor.submit(asyncio.run, self.summon_wizard(model, summary)): (model, info)
+                for model, info in wizards.items()
+            }
+            
+            for future in as_completed(future_to_model):
+                model, info = future_to_model[future]
+                try:
+                    result = future.result()
+                    if result:
+                        result["role"] = info["role"]
+                        result["weight"] = info["weight"]
+                        responses.append(result)
+                        self.status(f"  ✓ {info['role']}: {result['vuln']} [{result['confidence']}]", "success")
+                    else:
+                        self.status(f"  ⚠ {info['role']}: No response", "warning")
+                except:
+                    self.status(f"  ✗ {info['role']}: Failed", "error")
+        
+        if not responses:
+            return self._pattern_based_attacks(host)
+        
+        command_votes = {}
+        for r in responses:
+            cmd = r["command"]
+            norm_cmd = re.sub(r'\s+', ' ', cmd.lower().strip())
+            tool = norm_cmd.split()[0] if norm_cmd else "unknown"
+            key = f"{tool}:{hash(norm_cmd) % 10000}"
+            
+            if key not in command_votes:
+                command_votes[key] = {
+                    "command": cmd,
+                    "votes": 0,
+                    "weight": 0,
+                    "vulns": [],
+                    "supporters": []
+                }
+            
+            weight = r["weight"] * {"high": 3, "medium": 2, "low": 1}.get(r["confidence"], 1)
+            command_votes[key]["votes"] += 1
+            command_votes[key]["weight"] += weight
+            command_votes[key]["vulns"].append(r["vuln"])
+            command_votes[key]["supporters"].append(r["role"])
+        
+        sorted_cmds = sorted(command_votes.values(), key=lambda x: x["weight"], reverse=True)
+        
+        self.status("Deliberation Results:", "info")
+        for i, opt in enumerate(sorted_cmds[:3], 1):
+            medal = ["🥇", "🥈", "🥉"][i-1]
+            self.status(f"{medal} Rank {i}: {opt['vulns'][0]} (weight: {opt['weight']})", "success")
+            self.status(f"    Command: {opt['command'][:60]}...", "info")
+        
+        primary = sorted_cmds[0]["command"] if sorted_cmds else f"nmap -sC -sV {host.ip}"
+        alternatives = [c["command"] for c in sorted_cmds[1:3]] if len(sorted_cmds) > 1 else []
+        
+        self.status(f"Primary vector selected", "success")
+        return primary, alternatives
+    
+    def _pattern_based_attacks(self, host: Host) -> Tuple[str, List[str]]:
+        self.status("Using built-in attack patterns", "info")
+        commands = []
         
         for svc in host.services:
-            port_info = {
-                "port": svc.port,
-                "service": svc.name,
-                "version": svc.version,
-                "notes": ""
-            }
-            
-            if svc.name == 'http' and not recommended_port:
-                port_info["notes"] = "Web application - check for default pages, directory traversal"
-                recommended_port = svc.port
-                recommended_service = 'http'
-            elif svc.name == 'smb' and not recommended_port:
-                port_info["notes"] = "SMB service - check for null sessions, anonymous shares"
-                recommended_port = svc.port
-                recommended_service = 'smb'
-            elif svc.name == 'ssh' and not recommended_port:
-                port_info["notes"] = "SSH service - check for weak credentials, outdated versions"
-                recommended_port = svc.port
-                recommended_service = 'ssh'
-            elif svc.name == 'ftp' and not recommended_port:
-                port_info["notes"] = "FTP service - check for anonymous access"
-                recommended_port = svc.port
-                recommended_service = 'ftp'
-            
-            ports_data.append(port_info)
+            if svc.name == "http":
+                commands.append(f"gobuster dir -u http://{host.ip}:{svc.port}/ -w /usr/share/wordlists/dirb/common.txt -t 50")
+            elif svc.name == "https":
+                commands.append(f"gobuster dir -u https://{host.ip}:{svc.port}/ -w /usr/share/wordlists/dirb/common.txt -t 50 -k")
+            elif svc.name == "ssh":
+                commands.append(f"hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://{host.ip}")
+            elif svc.name == "ftp":
+                commands.append(f"hydra -l anonymous -p anonymous ftp://{host.ip}")
+            elif svc.name == "smb":
+                commands.append(f"enum4linux -a {host.ip}")
         
-        if not recommended_port and host.open_ports:
-            recommended_port = host.open_ports[0]
-            recommended_service = host.services[0].name if host.services else "unknown"
+        if not commands:
+            commands = [f"nmap -sC -sV -p- {host.ip}"]
         
-        os_guess = "Unknown"
-        if any(s.name in ['smb', 'winrm', 'rdp', 'msrpc'] for s in host.services):
-            os_guess = "Windows"
-        elif any(s.name in ['ssh', 'nfs', 'rpcbind'] for s in host.services):
-            os_guess = "Linux"
+        return commands[0], commands[1:3]
+    
+    def generate_output(self, primary: str, alternatives: List[str], target: str):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base = f"netweave_{target.replace('.', '_')}"
         
-        return {
-            "target": host.ip,
-            "operating_system": os_guess,
-            "ports": ports_data,
+        data = {
+            "target": target,
+            "timestamp": timestamp,
+            "operating_system": self.host.os if self.host else "Unknown",
+            "ports": [
+                {"port": s.port, "service": s.name, "version": s.version, 
+                 "notes": f"Scripts: {list(s.scripts.keys())}" if s.scripts else ""}
+                for s in (self.host.services if self.host else [])
+            ],
             "recommended_vector": {
-                "vector_name": f"{recommended_service.upper()}_Initial_Access" if recommended_service else "Unknown",
-                "target_port": recommended_port or 0,
-                "vulnerability_type": "Configuration/Enumeration",
-                "technical_summary": f"Initial foothold via {recommended_service} service enumeration and credential testing" if recommended_service else "Manual enumeration required"
+                "vector_name": primary.split()[0] if primary else "unknown",
+                "target_port": self.host.services[0].port if (self.host and self.host.services) else 0,
+                "vulnerability_type": "Enumeration",
+                "technical_summary": f"Primary: {primary}. Alternatives: {len(alternatives)}"
+            },
+            "commands": {
+                "primary": primary,
+                "alternatives": alternatives
             }
         }
-    
-    async def save_results(self, data: Dict[str, Any]):
-        """Save structured JSON to disk"""
-        filename = f"netweave_{self.target.replace('.', '_')}.json"
         
-        try:
-            with open(filename, 'w') as f:
-                json.dump(data, f, indent=2)
-            self.status(f"Attack vector data serialized: {filename}", "success")
-            
-            if self.console:
-                self.console.print(f"\n[bold cyan]Target:[/bold cyan] {data['target']}")
-                self.console.print(f"[bold cyan]OS:[/bold cyan] {data['operating_system']}")
-                self.console.print(f"[bold cyan]Primary Vector:[/bold cyan] {data['recommended_vector']['vector_name']} on port {data['recommended_vector']['target_port']}")
-            else:
-                print(f"\n{Colors.cyan('Target:')} {data['target']}")
-                print(f"{Colors.cyan('OS:')} {data['operating_system']}")
-                print(f"{Colors.cyan('Primary Vector:')} {data['recommended_vector']['vector_name']} on port {data['recommended_vector']['target_port']}")
-                
-        except Exception as e:
-            self.status(f"Failed to save results: {e}", "error")
-            print(json.dumps(data, indent=2))
+        filename = f"{base}.json"
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        self.status(f"Contract serialized: {filename}", "success")
+        
+        # Also generate bash script for immediate use
+        sh_file = f"{base}.sh"
+        with open(sh_file, 'w') as f:
+            f.write(f"#!/bin/bash\n# NetWeave Execution Payload\n# Target: {target}\n\n")
+            f.write(f"echo '[*] Executing primary vector...'\n")
+            f.write(f"{primary}\n")
+            for alt in alternatives:
+                f.write(f"\necho '[*] Alternative: {alt}'\n")
+                f.write(f"{alt}\n")
+            f.write("echo '[+] Complete'\n")
+        os.chmod(sh_file, 0o755)
+        self.status(f"Script generated: {sh_file}", "success")
+        
+        return filename, sh_file
     
     async def run(self, target: str):
-        """Main execution pipeline"""
         self.banner()
         
         validated = self.validate_target(target)
@@ -494,21 +532,26 @@ Do not include any markdown formatting, explanations, or text outside the JSON o
             self.session = aiohttp.ClientSession()
         
         try:
+            ollama_ready = await self.check_ollama()
+            
             self.status("Phase 1: Network Reconnaissance", "info")
             self.host = await self.nmap_scan(self.target)
             
             if not self.host.services:
-                self.status("No services discovered - target may be filtered", "warning")
+                self.status("No services discovered", "warning")
                 return
             
             web_count = len([s for s in self.host.services if s.name in ['http', 'https']])
             self.status(f"Web Targets Isolated: {web_count}", "info")
             
-            self.status("Phase 2: Attack Vector Correlation", "info")
-            analysis = await self.query_venice_ai(self.host)
+            self.status("Phase 2: Council Deliberation", "info")
+            if ollama_ready:
+                primary, alternatives = await self.council_deliberation(self.host)
+            else:
+                primary, alternatives = self._pattern_based_attacks(self.host)
             
             self.status("Phase 3: Data Packaging", "info")
-            await self.save_results(analysis)
+            await asyncio.to_thread(self.generate_output, primary, alternatives, self.target)
             
             self.status("Reconnaissance complete - data ready for Sectumsempra", "success")
             
@@ -517,30 +560,21 @@ Do not include any markdown formatting, explanations, or text outside the JSON o
                 await self.session.close()
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='NetWeave v9.0 - Cyan Engine - CTF Reconnaissance Suite',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Environment Variables:
-  VENICE_API_KEY    - API key for Venice AI integration
-  VENICE_API_URL    - Venice API endpoint (default: https://api.venice.ai/api/v1/chat/completions)
-  VENICE_MODEL      - Model to use (default: default)
-        """
-    )
+    parser = argparse.ArgumentParser(description='NetWeave v9.0 - Cyan Engine - Council of Wizards')
     parser.add_argument('target', help='Target IP address')
-    parser.add_argument('--no-ai', action='store_true', help='Skip AI analysis, use local heuristics only')
+    parser.add_argument('--no-ai', action='store_true', help='Skip AI, use pattern matching only')
     args = parser.parse_args()
     
     if args.no_ai:
-        os.environ['VENICE_API_KEY'] = ''
+        Config.COUNCIL = {}
     
     try:
         asyncio.run(NetWeave().run(args.target))
     except KeyboardInterrupt:
-        print(f"\n{Colors.yellow('[!] Operation cancelled by user')}")
+        print(f"\n{Colors.yellow('[!] Cancelled')}")
         sys.exit(0)
     except Exception as e:
-        print(f"{Colors.red(f'[-] Fatal error: {e}')}")
+        print(f"{Colors.red(f'[-] Fatal: {e}')}")
         sys.exit(1)
 
 if __name__ == "__main__":
