@@ -50,7 +50,7 @@ An advanced, high-performance, fully offline attack pipeline engineered for comp
 
 ### Python Dependencies
 ```bash
-pip install aiohttp rich netifaces
+sudo apt install -y python3-aiohttp python3-rich python3-netifaces
 ```
 
 ## 🚀 Deployment
