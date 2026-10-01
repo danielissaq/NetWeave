@@ -48,7 +48,7 @@ An advanced, high-performance, fully offline attack pipeline engineered for comp
 * **Ollama:** Local LLM runtime (ollama.com)
 * **System Tools:** `nmap` (optional but recommended)
 
-### Python Dependencies
+### Python Dependencies (System-wide for Kali)
 ```bash
 sudo apt install -y python3-aiohttp python3-rich python3-netifaces
 ```
@@ -58,11 +58,11 @@ sudo apt install -y python3-aiohttp python3-rich python3-netifaces
 ### 1. Install Ollama
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama serve
 ```
+*Note: Ollama automatically registers and runs as a background system service on Linux.*
 
 ### 2. Download the Council
-In a separate terminal tab, pull down the targeted open-source models:
+In your terminal, pull down the targeted open-source models:
 ```bash
 # Required (Battle Mage - fast command generation)
 ollama pull qwen2.5-coder:7b
@@ -123,7 +123,7 @@ Execute the Green engine in the exact same workspace window:
 ```bash
 python3 sectumsempra.py
 ```
-*This instantly imports the generated JSON file, binds a background listener socket, and drops a custom stager file like `payload_linux_10_10_10_10.sh` into your folder.*
+*This instantly imports the generated JSON file, binds a background listener socket, and drops a custom stager file like `payload_linux_<TARGET_IP>.sh` into your folder.*
 
 ### 3. Trigger & Land Foothold
 Fire your exploit using the compiled stager script on the target system. The session hooks back into your active terminal process automatically, yielding the shell window.
@@ -187,7 +187,7 @@ The JSON contract eliminates manual data transfer between tools. Sectumsempra pa
 
 ---
 
-## 🛡自 Fallback Behavior
+## 🛡️ Fallback Behavior
 
 When components hit resource constraints or experience failures, NetWeave degrades gracefully:
 
@@ -202,22 +202,18 @@ When components hit resource constraints or experience failures, NetWeave degrad
 
 ## 🐛 Troubleshooting
 
-* **Error: `aiohttp` or `netifaces` not installed:**
-  Ensure you have initialized and sourced the virtual environment loop (`source .venv/bin/activate`) before running installation strings:
+* **Error: `externally-managed-environment` on pip install:**
+  Kali Linux blocks raw pip installs globally. Install dependencies directly via apt:
   ```bash
-  pip install aiohttp netifaces rich
+  sudo apt install -y python3-aiohttp python3-rich python3-netifaces
   ```
-* **Error: Ollama not responding:**
-  Ensure the background execution daemon is currently active:
+* **Error: `address already in use` when starting Ollama:**
+  Ollama is already running as a systemd service. Verify your connection directly:
   ```bash
-  # Terminal 1
-  ollama serve
-
-  # Terminal 2 - Verify active socket connection
   curl http://localhost:11434/api/tags
   ```
-* **Error: No wizards available:**
-  Verify that you have explicitly pulled down your model targets:
+* **Error: No wizards available / Model not found:**
+  Ensure you pulled the base models to your local endpoint before running the scripts:
   ```bash
   ollama pull qwen2.5-coder:7b
   ```
