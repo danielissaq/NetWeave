@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-NetWeave v9.0 - Cyan Engine (Council of Wizards Edition)
-High-Performance Offline CTF Reconnaissance & Attack Path Correlation
-Optimized for HTB/THM Air-Gapped Environments
+NetWeave v9.1 - Cyan Engine (Bulletproof Edition)
+OS-Aware Reconnaissance with Stable Local AI
 """
 
 import asyncio
@@ -14,16 +13,17 @@ import re
 import socket
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import List, Dict, Optional, Any, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Optional, Any
+import subprocess
 
 try:
     import aiohttp
     ASYNC_HTTP = True
 except ImportError:
     ASYNC_HTTP = False
+    print("[!] pip install aiohttp")
 
 try:
     from rich.console import Console
@@ -33,41 +33,19 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-# Configuration
 class Config:
-    OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-    OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", "http://localhost:11434/api/tags")
-    AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "90"))
+    OLLAMA_URL = "http://localhost:11434/api/generate"
+    OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
+    AI_TIMEOUT = 30  # Reduced from 90 - aggressive for CTF speed
+    MAX_RETRIES = 2
     CONCURRENT_SCANS = 50
     TOP_CTF_PORTS = [21, 22, 23, 25, 53, 80, 88, 110, 111, 135, 139, 143, 443, 445, 464, 993, 995, 3306, 3389, 5985, 8080, 8443]
     
     COUNCIL = {
         "qwen2.5-coder:7b": {"role": "Battle Mage", "weight": 3},
-        "deepseek-r1:8b": {"role": "Archivist", "weight": 3},
+        "deepseek-r1:8b": {"role": "Archivist", "weight": 2},  # Reduced weight - too slow
         "llama3.2": {"role": "Scout", "weight": 2},
-        "mistral": {"role": "Duelist", "weight": 2},
     }
-
-class Colors:
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    BOLD = '\033[1m'
-    ENDC = '\033[0m'
-    
-    @classmethod
-    def cyan(cls, text: str) -> str:
-        return f"{cls.CYAN}{text}{cls.ENDC}"
-    
-    @classmethod
-    def green(cls, text: str) -> str:
-        return f"{cls.GREEN}{text}{cls.ENDC}"
-    
-    @classmethod
-    def yellow(cls, text: str) -> str:
-        return f"{cls.YELLOW}{text}{cls.ENDC}"
 
 @dataclass
 class Service:
@@ -85,6 +63,8 @@ class Host:
     ip: str
     hostname: str = ""
     os: str = "Unknown"
+    os_accuracy: int = 0  # Confidence score
+    ttl: Optional[int] = None  # For heuristic detection
     services: List[Service] = field(default_factory=list)
     open_ports: List[int] = field(default_factory=list)
 
@@ -105,124 +85,120 @@ class NetWeave:
     ╚═╝  ╚═══╝╚══════╝   ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝
         """
         if self.console:
-            self.console.print(Panel(
-                Text(banner_text, style="bold cyan"),
-                subtitle="[cyan]v9.0 Cyan Engine - Council of Wizards[/cyan]",
-                border_style="cyan"
-            ))
+            self.console.print(Panel(Text(banner_text, style="bold cyan"), 
+                                   subtitle="[cyan]v9.1 Cyan Engine - OS-Aware Council[/cyan]", 
+                                   border_style="cyan"))
         else:
-            print(Colors.cyan(banner_text))
-            print(Colors.cyan(">>> NetWeave v9.0 - Cyan Engine - Council of Wizards <<<\n"))
+            print(f"\033[96m{banner_text}\033[0m")
+            print("\033[96m>>> NetWeave v9.1 - Bulletproof Council <<<\033[0m\n")
     
     def status(self, message: str, level: str = "info"):
         indicators = {
-            "info": ("[*]", Colors.BLUE),
-            "success": ("[+]", Colors.GREEN),
-            "warning": ("[!]", Colors.YELLOW),
-            "error": ("[-]", Colors.RED),
-            "scan": ("[~]", Colors.CYAN)
+            "info": ("[*]", "\033[94m"),
+            "success": ("[+]", "\033[92m"),
+            "warning": ("[!]", "\033[93m"),
+            "error": ("[-]", "\033[91m"),
+            "scan": ("[~]", "\033[96m"),
+            "os_detect": ("[OS]", "\033[95m")
         }
-        indicator, color = indicators.get(level, ("[*]", Colors.BLUE))
+        ind, color = indicators.get(level, ("[*]", "\033[94m"))
         
         if self.console:
-            style = {"info": "blue", "success": "green", "warning": "yellow", "error": "red", "scan": "cyan"}.get(level, "white")
-            self.console.print(f"[{style}]{indicator} {message}[/{style}]")
+            style = {"info": "blue", "success": "green", "warning": "yellow", 
+                    "error": "red", "scan": "cyan", "os_detect": "magenta"}.get(level, "white")
+            self.console.print(f"[{style}]{ind} {message}[/{style}]")
         else:
-            print(f"{color}{indicator} {message}{Colors.ENDC}")
+            print(f"{color}{ind} {message}\033[0m")
     
     def validate_target(self, ip_str: str) -> Optional[str]:
         try:
             ip = ipaddress.ip_address(ip_str)
-            if ip.is_loopback:
-                self.status("Loopback address detected", "warning")
-                return str(ip)
             if not ip.is_private:
-                self.status(f"WARNING: {ip} is a PUBLIC IP!", "warning")
+                self.status(f"WARNING: {ip} is PUBLIC!", "warning")
                 if input("Continue only if authorized [y/N]: ").lower() not in ['y', 'yes']:
                     return None
             return str(ip)
         except ValueError:
-            self.status(f"Invalid IP address: {ip_str}", "error")
+            self.status(f"Invalid IP: {ip_str}", "error")
             return None
     
-    async def check_ollama(self) -> bool:
-        if not ASYNC_HTTP:
-            return False
-        try:
-            async with self.session.get(Config.OLLAMA_TAGS_URL, timeout=5) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    models = [m["name"] for m in data.get("models", [])]
-                    if models:
-                        self.status(f"Council ready with {len(models)} wizards", "success")
-                        return True
-                    else:
-                        self.status("No local models found. Run: ollama pull qwen2.5-coder:7b", "warning")
-                        return False
-                return False
-        except Exception as e:
-            self.status(f"Ollama not responding: {e}", "warning")
-            return False
+    def detect_os_heuristic(self, host: Host) -> str:
+        """Multi-factor OS detection when Nmap fails"""
+        # Factor 1: Service-based fingerprinting
+        win_services = {'smb', 'microsoft-ds', 'msrpc', 'winrm', 'rdp', 'mssql'}
+        linux_services = {'ssh', 'nfs', 'rpcbind', 'x11', 'postgresql'}
+        
+        win_score = sum(1 for s in host.services if s.name in win_services)
+        linux_score = sum(1 for s in host.services if s.name in linux_services)
+        
+        # Factor 2: Port behavior
+        if 3389 in host.open_ports or 5985 in host.open_ports:
+            win_score += 2
+        if 2049 in host.open_ports or 111 in host.open_ports:
+            linux_score += 2
+            
+        # Factor 3: Banner analysis
+        for svc in host.services:
+            banner_lower = (svc.banner + svc.version).lower()
+            if any(x in banner_lower for x in ['windows', 'win32', 'microsoft', 'iis']):
+                win_score += 3
+            if any(x in banner_lower for x in ['ubuntu', 'debian', 'centos', 'red hat', 'linux']):
+                linux_score += 3
+        
+        if win_score > linux_score:
+            return "Windows"
+        elif linux_score > win_score:
+            return "Linux"
+        return "Unknown"
     
     async def nmap_scan(self, target: str) -> Host:
         xml_file = f"/tmp/netweave_{target.replace('.', '_')}_{os.getpid()}.xml"
-        
         if os.path.exists(xml_file):
             os.remove(xml_file)
         
+        # Aggressive OS detection added
         cmd = [
-            "nmap", "-sV", "-sC", "-Pn", "--open", 
+            "nmap", "-sV", "-sC", "-O", "--osscan-guess", "-Pn", "--open",
             "-oX", xml_file, "--top-ports", "1000",
-            "--max-retries", "2", "--host-timeout", "5m",
-            "-T4", target
+            "--max-retries", "1", "--host-timeout", "3m",
+            "-T5", target
         ]
         
-        self.status("Running Nmap Connect Scan...", "scan")
+        self.status("Running OS-Aware Nmap Scan...", "scan")
         
         try:
             proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
+                *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
             )
-            
             try:
-                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+                await asyncio.wait_for(proc.communicate(), timeout=180)
             except asyncio.TimeoutError:
                 proc.kill()
                 self.status("Nmap timed out, using fallback", "warning")
-                return await self.fallback_socket_scan(target)
-                
+                return await self.fallback_scan(target)
         except FileNotFoundError:
-            self.status("Nmap not found, using fallback scanner", "warning")
-            return await self.fallback_socket_scan(target)
-        except Exception as e:
-            self.status(f"Nmap failed: {e}", "error")
-            return await self.fallback_socket_scan(target)
+            return await self.fallback_scan(target)
         
         host = Host(ip=target)
         
         if not os.path.exists(xml_file) or os.path.getsize(xml_file) < 100:
-            return await self.fallback_socket_scan(target)
+            return await self.fallback_scan(target)
         
         try:
             tree = ET.parse(xml_file)
             root = tree.getroot()
             
             for host_elem in root.findall('host'):
-                hostnames = host_elem.find('hostnames')
-                if hostnames is not None:
-                    for name in hostnames.findall('hostname'):
-                        if name.get('name'):
-                            host.hostname = name.get('name')
-                            break
-                
+                # OS Detection - Priority 1
                 os_elem = host_elem.find('os')
                 if os_elem is not None:
                     osmatch = os_elem.find('osmatch')
                     if osmatch is not None:
-                        host.os = osmatch.get('name', 'Unknown')[:50]
+                        host.os = osmatch.get('name', 'Unknown')
+                        host.os_accuracy = int(osmatch.get('accuracy', 0))
+                        self.status(f"Nmap OS Detected: {host.os} ({host.os_accuracy}%)", "os_detect")
                 
+                # Port parsing
                 ports_elem = host_elem.find('ports')
                 if ports_elem is not None:
                     for port_elem in ports_elem.findall('port'):
@@ -232,55 +208,53 @@ class NetWeave:
                             host.open_ports.append(port_num)
                             
                             service = Service(port=port_num)
-                            service.protocol = port_elem.get('protocol', 'tcp')
-                            
                             svc_elem = port_elem.find('service')
                             if svc_elem is not None:
                                 service.name = svc_elem.get('name', 'unknown')
                                 product = svc_elem.get('product', '')
                                 version = svc_elem.get('version', '')
                                 service.version = f"{product} {version}".strip()
-                                service.cpe = svc_elem.get('cpe', '')
-                            
-                            for script in port_elem.findall('script'):
-                                script_id = script.get('id')
-                                output = script.get('output', '')
-                                if script_id and output:
-                                    service.scripts[script_id] = output[:500]
+                                service.banner = svc_elem.get('extrainfo', '')
+                                
+                                # Extract OS hints from service banners
+                                if not host.os or host.os == "Unknown":
+                                    banner = (service.version + service.banner).lower()
+                                    if any(w in banner for w in ['windows', 'microsoft', 'iis', 'win32']):
+                                        host.os = "Windows"
+                                    elif any(l in banner for l in ['ubuntu', 'debian', 'centos', 'redhat', 'linux']):
+                                        host.os = "Linux"
                             
                             host.services.append(service)
             
-            if not host.services:
-                fallback = await self.fallback_socket_scan(target)
-                if fallback.open_ports:
-                    return fallback
+            # Heuristic fallback if Nmap OS detection failed
+            if not host.os or host.os == "Unknown":
+                host.os = self.detect_os_heuristic(host)
+                if host.os != "Unknown":
+                    self.status(f"Heuristic OS Detected: {host.os} (service-based)", "os_detect")
                     
         except Exception as e:
-            self.status(f"XML parse error: {e}", "error")
-            return await self.fallback_socket_scan(target)
+            self.status(f"Parse error: {e}", "error")
+            host = await self.fallback_scan(target)
         finally:
             try:
                 os.remove(xml_file)
             except:
                 pass
         
-        self.status(f"Nmap complete: {len(host.services)} services", "success")
+        self.status(f"Scan complete: {len(host.services)} services | OS: {host.os}", "success")
         return host
     
-    async def fallback_socket_scan(self, target: str) -> Host:
-        self.status("Initiating fallback TCP probe...", "scan")
-        
+    async def fallback_scan(self, target: str) -> Host:
+        self.status("Running async TCP probe...", "scan")
         host = Host(ip=target)
-        open_ports = []
         
         semaphore = asyncio.Semaphore(Config.CONCURRENT_SCANS)
         
-        async def probe_port(port: int) -> Optional[int]:
+        async def probe(port: int) -> Optional[int]:
             async with semaphore:
                 try:
                     reader, writer = await asyncio.wait_for(
-                        asyncio.open_connection(target, port),
-                        timeout=2.0
+                        asyncio.open_connection(target, port), timeout=1.5
                     )
                     writer.close()
                     await writer.wait_closed()
@@ -288,235 +262,207 @@ class NetWeave:
                 except:
                     return None
         
-        tasks = [probe_port(p) for p in Config.TOP_CTF_PORTS]
+        tasks = [probe(p) for p in Config.TOP_CTF_PORTS]
         results = await asyncio.gather(*tasks)
-        open_ports = sorted([p for p in results if p is not None])
-        
-        if not open_ports:
-            self.status("No open ports found", "warning")
-            return host
-        
-        self.status(f"Fallback found {len(open_ports)} ports: {open_ports}", "success")
-        host.open_ports = open_ports
+        host.open_ports = sorted([p for p in results if p is not None])
         
         service_map = {
             21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns',
             80: 'http', 88: 'kerberos', 110: 'pop3', 111: 'rpcbind',
             135: 'msrpc', 139: 'netbios', 143: 'imap', 443: 'https',
             445: 'smb', 464: 'kpasswd', 993: 'imaps', 995: 'pop3s',
-            3306: 'mysql', 3389: 'rdp', 5985: 'winrm', 8080: 'http-proxy', 8443: 'https-alt'
+            3306: 'mysql', 3389: 'rdp', 5985: 'winrm', 8080: 'http-proxy'
         }
         
-        for port in open_ports:
-            svc = Service(port=port, name=service_map.get(port, 'unknown'), state='open')
-            host.services.append(svc)
+        for port in host.open_ports:
+            host.services.append(Service(port=port, name=service_map.get(port, 'unknown')))
         
+        # OS detection on fallback
+        host.os = self.detect_os_heuristic(host)
+        self.status(f"Fallback found {len(host.open_ports)} ports | OS: {host.os}", "success")
         return host
     
-    async def summon_wizard(self, model: str, scan_summary: str) -> Optional[Dict]:
-        prompt = f"""You are a CTF penetration testing expert. Analyze this scan and provide ONE best attack command.
-
-SCAN:
-{scan_summary}
-
-Respond ONLY with:
-VULN: [brief vulnerability name]
-[CMD] [exact command to run] [CMD]
-CONFIDENCE: [High/Medium/Low]"""
-
+    async def query_ollama_stable(self, model: str, prompt: str) -> Optional[Dict]:
+        """Bulletproof Ollama querying with retries"""
+        if not ASYNC_HTTP:
+            return None
+            
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 256}
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 150,  # Reduced for speed
+                "stop": ["\n\n", "Human:", "Assistant:"]
+            }
         }
         
-        try:
-            async with self.session.post(
-                Config.OLLAMA_URL,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=Config.AI_TIMEOUT)
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    text = data.get('response', '')
-                    
-                    cmd_match = re.search(r'\[CMD\]\s*(.*?)\s*\[CMD\]', text, re.DOTALL)
-                    cmd = cmd_match.group(1).strip() if cmd_match else None
-                    
-                    conf_match = re.search(r'CONFIDENCE:\s*(High|Medium|Low)', text, re.I)
-                    conf = conf_match.group(1).lower() if conf_match else "medium"
-                    
-                    vuln_match = re.search(r'VULN:\s*(.+?)(?:\n|$)', text, re.I)
-                    vuln = vuln_match.group(1).strip() if vuln_match else "Unknown"
-                    
-                    if cmd and len(cmd) > 5:
-                        return {
-                            "model": model,
-                            "command": cmd,
-                            "vuln": vuln,
-                            "confidence": conf,
-                            "raw": text[:200]
-                        }
-        except asyncio.TimeoutError:
-            self.status(f"  ⚠ {model}: Timed out", "warning")
-        except Exception as e:
-            self.status(f"  ⚠ {model}: Failed", "warning")
+        for attempt in range(Config.MAX_RETRIES):
+            try:
+                timeout = aiohttp.ClientTimeout(total=Config.AI_TIMEOUT)
+                async with self.session.post(
+                    Config.OLLAMA_URL, json=payload, timeout=timeout
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        text = data.get('response', '')
+                        
+                        # Extract command with regex
+                        cmd_match = re.search(r'\[CMD\]\s*(.*?)\s*(?:\[CMD\]|$)', text, re.DOTALL)
+                        if cmd_match:
+                            return {
+                                "model": model,
+                                "command": cmd_match.group(1).strip(),
+                                "raw": text[:100]
+                            }
+                        return None
+            except asyncio.TimeoutError:
+                self.status(f"  {model}: Timeout (attempt {attempt+1})", "warning")
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                self.status(f"  {model}: Error {str(e)[:30]}", "error")
+                break
         
         return None
     
-    async def council_deliberation(self, host: Host) -> Tuple[str, List[str]]:
-        self.status("The Council of Wizards convenes...", "info")
+    async def council_deliberation(self, host: Host) -> Dict[str, Any]:
+        self.status("Council of Wizards convening...", "info")
         
-        summary = f"Target: {host.ip}\nOpen Ports: {', '.join(map(str, host.open_ports))}\n\n"
-        for svc in host.services:
-            summary += f"Port {svc.port}/{svc.protocol}: {svc.name} {svc.version}\n"
-            if svc.scripts:
-                summary += f"  Scripts: {list(svc.scripts.keys())[:3]}\n"
+        # Build concise prompt
+        svc_summary = "\n".join([
+            f"{s.port}:{s.name}:{s.version}" 
+            for s in host.services[:5]  # Limit context
+        ])
         
-        available_models = []
+        prompt = f"""CTF target {host.ip} OS:{host.os}
+Services: {svc_summary}
+Suggest ONE command. Format: [CMD]command[CMD]
+Example: [CMD]nc -lvnp 4444[CMD]"""
+        
+        # Check available models
+        available = []
         try:
             async with self.session.get(Config.OLLAMA_TAGS_URL, timeout=5) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    available_models = [m["name"] for m in data.get("models", [])]
+                    available = [m["name"] for m in data.get("models", [])]
         except:
             pass
         
-        wizards = {k: v for k, v in Config.COUNCIL.items() if k in available_models}
+        wizards = {k: v for k, v in Config.COUNCIL.items() if k in available}
         
         if not wizards:
-            self.status("No wizards available, using pattern fallback", "warning")
+            self.status("No wizards available, using OS-aware patterns", "warning")
             return self._pattern_based_attacks(host)
         
-        self.status(f"Summoning {len(wizards)} wizards...", "scan")
+        # Query wizards concurrently with gather (cleaner than ThreadPool)
+        tasks = [
+            self.query_ollama_stable(model, prompt) 
+            for model in wizards.keys()
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        responses = []
-        with ThreadPoolExecutor(max_workers=len(wizards)) as executor:
-            future_to_model = {
-                executor.submit(asyncio.run, self.summon_wizard(model, summary)): (model, info)
-                for model, info in wizards.items()
-            }
+        votes = {}
+        for (model_name, model_info), result in zip(wizards.items(), results):
+            if isinstance(result, Exception) or result is None:
+                self.status(f"  ✗ {model_info['role']}: Failed", "error")
+                continue
             
-            for future in as_completed(future_to_model):
-                model, info = future_to_model[future]
-                try:
-                    result = future.result()
-                    if result:
-                        result["role"] = info["role"]
-                        result["weight"] = info["weight"]
-                        responses.append(result)
-                        self.status(f"  ✓ {info['role']}: {result['vuln']} [{result['confidence']}]", "success")
-                    else:
-                        self.status(f"  ⚠ {info['role']}: No response", "warning")
-                except:
-                    self.status(f"  ✗ {info['role']}: Failed", "error")
+            cmd = result["command"]
+            self.status(f"  ✓ {model_info['role']}: {cmd[:40]}...", "success")
+            
+            # Weight by role
+            weight = model_info["weight"]
+            key = hash(cmd) % 10000
+            if key not in votes:
+                votes[key] = {"cmd": cmd, "weight": 0, "supporters": []}
+            votes[key]["weight"] += weight
+            votes[key]["supporters"].append(model_info["role"])
         
-        if not responses:
+        if not votes:
             return self._pattern_based_attacks(host)
         
-        command_votes = {}
-        for r in responses:
-            cmd = r["command"]
-            norm_cmd = re.sub(r'\s+', ' ', cmd.lower().strip())
-            tool = norm_cmd.split()[0] if norm_cmd else "unknown"
-            key = f"{tool}:{hash(norm_cmd) % 10000}"
-            
-            if key not in command_votes:
-                command_votes[key] = {
-                    "command": cmd,
-                    "votes": 0,
-                    "weight": 0,
-                    "vulns": [],
-                    "supporters": []
-                }
-            
-            weight = r["weight"] * {"high": 3, "medium": 2, "low": 1}.get(r["confidence"], 1)
-            command_votes[key]["votes"] += 1
-            command_votes[key]["weight"] += weight
-            command_votes[key]["vulns"].append(r["vuln"])
-            command_votes[key]["supporters"].append(r["role"])
+        winner = max(votes.values(), key=lambda x: x["weight"])
+        self.status(f"Primary vector: {winner['cmd'][:50]}...", "success")
         
-        sorted_cmds = sorted(command_votes.values(), key=lambda x: x["weight"], reverse=True)
-        
-        self.status("Deliberation Results:", "info")
-        for i, opt in enumerate(sorted_cmds[:3], 1):
-            medal = ["🥇", "🥈", "🥉"][i-1]
-            self.status(f"{medal} Rank {i}: {opt['vulns'][0]} (weight: {opt['weight']})", "success")
-            self.status(f"    Command: {opt['command'][:60]}...", "info")
-        
-        primary = sorted_cmds[0]["command"] if sorted_cmds else f"nmap -sC -sV {host.ip}"
-        alternatives = [c["command"] for c in sorted_cmds[1:3]] if len(sorted_cmds) > 1 else []
-        
-        self.status(f"Primary vector selected", "success")
-        return primary, alternatives
+        return {
+            "primary": winner["cmd"],
+            "alternatives": [v["cmd"] for v in votes.values() if v["cmd"] != winner["cmd"]][:2],
+            "supporters": winner["supporters"]
+        }
     
-    def _pattern_based_attacks(self, host: Host) -> Tuple[str, List[str]]:
-        self.status("Using built-in attack patterns", "info")
-        commands = []
+    def _pattern_based_attacks(self, host: Host) -> Dict[str, Any]:
+        """OS-aware pattern matching"""
+        primary = None
+        alternatives = []
         
-        for svc in host.services:
-            if svc.name == "http":
-                commands.append(f"gobuster dir -u http://{host.ip}:{svc.port}/ -w /usr/share/wordlists/dirb/common.txt -t 50")
-            elif svc.name == "https":
-                commands.append(f"gobuster dir -u https://{host.ip}:{svc.port}/ -w /usr/share/wordlists/dirb/common.txt -t 50 -k")
-            elif svc.name == "ssh":
-                commands.append(f"hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://{host.ip}")
-            elif svc.name == "ftp":
-                commands.append(f"hydra -l anonymous -p anonymous ftp://{host.ip}")
-            elif svc.name == "smb":
-                commands.append(f"enum4linux -a {host.ip}")
+        # OS-specific logic
+        if host.os == "Windows":
+            if 445 in [s.port for s in host.services]:
+                primary = f"enum4linux -a {host.ip}"
+                alternatives.append(f"smbclient -L //{host.ip} -N")
+            elif 5985 in [s.port for s in host.services]:
+                primary = f"evil-winrm -i {host.ip} -u administrator"
+            elif 3389 in [s.port for s in host.services]:
+                primary = f"rdesktop {host.ip}"
+        else:  # Linux or Unknown
+            if any(s.name == 'http' for s in host.services):
+                primary = f"gobuster dir -u http://{host.ip}/ -w /usr/share/wordlists/dirb/common.txt -t 50"
+            elif any(s.name == 'ssh' for s in host.services):
+                primary = f"hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://{host.ip}"
+            elif any(s.name == 'ftp' for s in host.services):
+                primary = f"hydra -l anonymous -p anonymous ftp://{host.ip}"
         
-        if not commands:
-            commands = [f"nmap -sC -sV -p- {host.ip}"]
+        if not primary:
+            primary = f"nmap -sC -sV -p- {host.ip}"
         
-        return commands[0], commands[1:3]
+        return {
+            "primary": primary,
+            "alternatives": alternatives,
+            "supporters": ["PatternFallback"]
+        }
     
-    def generate_output(self, primary: str, alternatives: List[str], target: str):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base = f"netweave_{target.replace('.', '_')}"
-        
-        data = {
-            "target": target,
-            "timestamp": timestamp,
-            "operating_system": self.host.os if self.host else "Unknown",
+    def save_contract(self, attack_plan: Dict, host: Host):
+        """Serialize to Sectumsempra-compatible JSON"""
+        contract = {
+            "target": host.ip,
+            "timestamp": datetime.now().isoformat(),
+            "operating_system": host.os,
+            "os_confidence": host.os_accuracy,
             "ports": [
-                {"port": s.port, "service": s.name, "version": s.version, 
-                 "notes": f"Scripts: {list(s.scripts.keys())}" if s.scripts else ""}
-                for s in (self.host.services if self.host else [])
+                {
+                    "port": s.port,
+                    "service": s.name,
+                    "version": s.version,
+                    "notes": s.banner[:50] if s.banner else ""
+                }
+                for s in host.services
             ],
             "recommended_vector": {
-                "vector_name": primary.split()[0] if primary else "unknown",
-                "target_port": self.host.services[0].port if (self.host and self.host.services) else 0,
+                "vector_name": attack_plan["primary"].split()[0],
+                "target_port": host.services[0].port if host.services else 0,
                 "vulnerability_type": "Enumeration",
-                "technical_summary": f"Primary: {primary}. Alternatives: {len(alternatives)}"
+                "technical_summary": attack_plan["primary"]
             },
             "commands": {
-                "primary": primary,
-                "alternatives": alternatives
+                "primary": attack_plan["primary"],
+                "alternatives": attack_plan["alternatives"],
+                "council": attack_plan.get("supporters", [])
+            },
+            "metadata": {
+                "tool": "NetWeave",
+                "version": "9.1",
+                "council_size": len(attack_plan.get("supporters", []))
             }
         }
         
-        filename = f"{base}.json"
+        filename = f"netweave_{host.ip.replace('.', '_')}.json"
         with open(filename, 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump(contract, f, indent=2)
         
         self.status(f"Contract serialized: {filename}", "success")
-        
-        # Also generate bash script for immediate use
-        sh_file = f"{base}.sh"
-        with open(sh_file, 'w') as f:
-            f.write(f"#!/bin/bash\n# NetWeave Execution Payload\n# Target: {target}\n\n")
-            f.write(f"echo '[*] Executing primary vector...'\n")
-            f.write(f"{primary}\n")
-            for alt in alternatives:
-                f.write(f"\necho '[*] Alternative: {alt}'\n")
-                f.write(f"{alt}\n")
-            f.write("echo '[+] Complete'\n")
-        os.chmod(sh_file, 0o755)
-        self.status(f"Script generated: {sh_file}", "success")
-        
-        return filename, sh_file
+        return filename
     
     async def run(self, target: str):
         self.banner()
@@ -526,43 +472,38 @@ CONFIDENCE: [High/Medium/Low]"""
             sys.exit(1)
         self.target = validated
         
-        self.status(f"Target acquired: {self.target}", "info")
+        self.status(f"Target: {self.target}", "info")
         
         if ASYNC_HTTP:
             self.session = aiohttp.ClientSession()
         
         try:
-            ollama_ready = await self.check_ollama()
-            
-            self.status("Phase 1: Network Reconnaissance", "info")
+            # Phase 1: Recon with OS detection
+            self.status("Phase 1: OS-Aware Reconnaissance", "info")
             self.host = await self.nmap_scan(self.target)
             
             if not self.host.services:
-                self.status("No services discovered", "warning")
+                self.status("No services found", "error")
                 return
             
-            web_count = len([s for s in self.host.services if s.name in ['http', 'https']])
-            self.status(f"Web Targets Isolated: {web_count}", "info")
-            
+            # Phase 2: Council
             self.status("Phase 2: Council Deliberation", "info")
-            if ollama_ready:
-                primary, alternatives = await self.council_deliberation(self.host)
-            else:
-                primary, alternatives = self._pattern_based_attacks(self.host)
+            plan = await self.council_deliberation(self.host)
             
-            self.status("Phase 3: Data Packaging", "info")
-            await asyncio.to_thread(self.generate_output, primary, alternatives, self.target)
+            # Phase 3: Contract
+            self.status("Phase 3: Contract Generation", "info")
+            self.save_contract(plan, self.host)
             
-            self.status("Reconnaissance complete - data ready for Sectumsempra", "success")
+            self.status("Pipeline ready for Sectumsempra", "success")
             
         finally:
             if self.session:
                 await self.session.close()
 
 def main():
-    parser = argparse.ArgumentParser(description='NetWeave v9.0 - Cyan Engine - Council of Wizards')
-    parser.add_argument('target', help='Target IP address')
-    parser.add_argument('--no-ai', action='store_true', help='Skip AI, use pattern matching only')
+    parser = argparse.ArgumentParser(description='NetWeave v9.1 - OS-Aware Council')
+    parser.add_argument('target', help='Target IP')
+    parser.add_argument('--no-ai', action='store_true', help='Skip Council')
     args = parser.parse_args()
     
     if args.no_ai:
@@ -571,11 +512,8 @@ def main():
     try:
         asyncio.run(NetWeave().run(args.target))
     except KeyboardInterrupt:
-        print(f"\n{Colors.yellow('[!] Cancelled')}")
+        print("\n[!] Cancelled")
         sys.exit(0)
-    except Exception as e:
-        print(f"{Colors.red(f'[-] Fatal: {e}')}")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()
