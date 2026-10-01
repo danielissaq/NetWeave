@@ -1,211 +1,205 @@
 #!/usr/bin/env python3
 """
-NetWeave v8.1 - The CTF Reconnaissance & Attack Path Correlation Framework
-Surgically perfected for zero-failure operation.
+NetWeave v9.0 - Cyan Engine
+CTF Reconnaissance & Attack Path Correlation
+Optimized for HTB/THM Speedrun 
 """
-import sys
-import os
-import re
-import json
-import time
-import socket
+
+import asyncio
 import argparse
 import ipaddress
-import subprocess
+import json
+import os
+import re
+import socket
+import sys
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Optional, Any, Tuple
 
-# Try to import requests, provide helpful error if missing
+# Optional imports with graceful degradation
 try:
-    import requests
-    REQUESTS_AVAILABLE = True
+    import aiohttp
+    ASYNC_HTTP = True
 except ImportError:
-    REQUESTS_AVAILABLE = False
-    print("[!] Warning: requests module not found. Install with: pip3 install requests")
+    ASYNC_HTTP = False
+    print("[!] aiohttp not installed. Install with: pip install aiohttp")
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
 
 # Configuration
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
-SESSION_FILE = ".netweave_session.json"
-AI_TIMEOUT = 90  # Single timeout for all AI calls - enough to think, not enough to annoy
-
-# The Council of Wizards - Simplified, no individual timeouts
-COUNCIL = {
-    "qwen2.5-coder:7b": {"role": "Battle Mage", "weight": 3},
-    "deepseek-r1:8b": {"role": "Archivist", "weight": 3},
-    "llama3.2": {"role": "Scout", "weight": 2},
-    "mistral": {"role": "Duelist", "weight": 2},
-}
-
-# Built-in attack patterns for when AI fails
-ATTACK_PATTERNS = {
-    "http": {
-        "tools": ["gobuster", "nikto", "curl", "wfuzz"],
-        "paths": ["/admin", "/login", "/api", "/backup", "/.env", "/robots.txt"],
-        "extensions": ["php", "txt", "bak", "old", "zip"]
-    },
-    "https": {
-        "tools": ["gobuster", "nikto", "curl", "wfuzz"],
-        "paths": ["/admin", "/login", "/api", "/backup", "/.env", "/robots.txt"],
-        "extensions": ["php", "txt", "bak", "old", "zip"]
-    },
-    "ssh": {
-        "tools": ["hydra", "ssh-audit", "nc"],
-        "users": ["root", "admin", "user", "test"],
-        "checks": ["version", "key-auth", "banner"]
-    },
-    "ftp": {
-        "tools": ["hydra", "ftp", "lftp"],
-        "anon": True
-    },
-    "smb": {
-        "tools": ["enum4linux", "smbclient", "smbmap", "nmap"],
-        "shares": ["IPC$", "C$", "ADMIN$", "public"]
-    }
-}
+class Config:
+    """Environment and runtime configuration"""
+    VENICE_API_URL = os.getenv("VENICE_API_URL", "https://api.venice.ai/api/v1/chat/completions")
+    VENICE_API_KEY = os.getenv("VENICE_API_KEY", "")
+    AI_MODEL = os.getenv("VENICE_MODEL", "default")
+    AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "45"))
+    CONCURRENT_SCANS = 50
+    TOP_CTF_PORTS = [21, 22, 23, 25, 53, 80, 88, 110, 111, 135, 139, 143, 443, 445, 464, 993, 995, 3306, 3389, 5985]
 
 class Colors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
+    """ANSI color codes for terminal output"""
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
     BOLD = '\033[1m'
+    ENDC = '\033[0m'
+    
+    @classmethod
+    def cyan(cls, text: str) -> str:
+        return f"{cls.CYAN}{text}{cls.ENDC}"
+    
+    @classmethod
+    def green(cls, text: str) -> str:
+        return f"{cls.GREEN}{text}{cls.ENDC}"
+    
+    @classmethod
+    def yellow(cls, text: str) -> str:
+        return f"{cls.YELLOW}{text}{cls.ENDC}"
+    
+    @classmethod
+    def red(cls, text: str) -> str:
+        return f"{cls.RED}{text}{cls.ENDC}"
 
 @dataclass
 class Service:
     port: int
-    protocol: str
-    state: str
-    name: str
-    version: str
-    cpe: str
-    scripts: List[str]
+    protocol: str = "tcp"
+    state: str = "open"
+    name: str = "unknown"
+    version: str = ""
+    banner: str = ""
+    cpe: str = ""
+    scripts: Dict[str, str] = field(default_factory=dict)
 
-@dataclass  
+@dataclass
 class Host:
     ip: str
-    hostname: str
-    os: str
-    services: List[Service]
-    open_ports: List[int]
+    hostname: str = ""
+    os: str = "Unknown"
+    services: List[Service] = field(default_factory=list)
+    open_ports: List[int] = field(default_factory=list)
 
 class NetWeave:
     def __init__(self):
-        self.session = {}
-        self.target = None
-        self.host = None
+        self.console = Console() if RICH_AVAILABLE else None
+        self.target: Optional[str] = None
+        self.host: Optional[Host] = None
+        self.session: Optional[aiohttp.ClientSession] = None
         
     def banner(self):
-        print(f"""
-    {Colors.OKCYAN}███╗   ██╗███████╗████████╗██╗    ██╗███████╗ █████╗ ██╗   ██╗███████╗{Colors.ENDC}
-    {Colors.OKCYAN}████╗  ██║██╔════╝╚══██╔══╝██║    ██║██╔════╝██╔══██╗██║   ██║██╔════╝{Colors.ENDC}
-    {Colors.OKCYAN}██╔██╗ ██║█████╗     ██║   ██║ █╗ ██║█████╗  ███████║██║   ██║█████╗  {Colors.ENDC}
-    {Colors.OKCYAN}██║╚██╗██║██╔══╝     ██║   ██║███╗██║██╔══╝  ██╔══██║╚██╗ ██╔╝██╔══╝  {Colors.ENDC}
-    {Colors.OKCYAN}██║ ╚████║███████╗   ██║   ╚███╔███╔╝███████╗██║  ██║ ╚████╔╝ ███████╗{Colors.ENDC}
-    {Colors.OKCYAN}╚═╝  ╚═══╝╚══════╝   ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝{Colors.ENDC}
-    {Colors.OKGREEN}>>> NetWeave v8.1 - Council of Wizards Edition <<<{Colors.ENDC}
-        """)
+        """Display ASCII banner with cyan styling"""
+        banner_text = """
+    ███╗   ██╗███████╗████████╗██╗    ██╗███████╗ █████╗ ██╗   ██╗███████╗
+    ████╗  ██║██╔════╝╚══██╔══╝██║    ██║██╔════╝██╔══██╗██║   ██║██╔════╝
+    ██╔██╗ ██║█████╗     ██║   ██║ █╗ ██║█████╗  ███████║██║   ██║█████╗  
+    ██║╚██╗██║██╔══╝     ██║   ██║███╗██║██╔══╝  ██╔══██║╚██╗ ██╔╝██╔══╝  
+    ██║ ╚████║███████╗   ██║   ╚███╔███╔╝███████╗██║  ██║ ╚████╔╝ ███████╗
+    ╚═╝  ╚═══╝╚══════╝   ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝
+        """
+        if self.console:
+            self.console.print(Panel(
+                Text(banner_text, style="bold cyan"),
+                subtitle="[cyan]v9.0 Cyan Engine - HTB/THM Speedrun Suite[/cyan]",
+                border_style="cyan"
+            ))
+        else:
+            print(Colors.cyan(banner_text))
+            print(Colors.cyan(">>> NetWeave v9.0 - Cyan Engine - HTB/THM Speedrun Suite <<<\n"))
+    
+    def status(self, message: str, level: str = "info"):
+        """Print status message with appropriate styling"""
+        indicators = {
+            "info": ("[*]", Colors.BLUE),
+            "success": ("[+]", Colors.GREEN),
+            "warning": ("[!]", Colors.YELLOW),
+            "error": ("[-]", Colors.RED),
+            "scan": ("[~]", Colors.CYAN)
+        }
+        indicator, color = indicators.get(level, ("[*]", Colors.BLUE))
+        
+        if self.console:
+            style = {"info": "blue", "success": "green", "warning": "yellow", "error": "red", "scan": "cyan"}.get(level, "white")
+            self.console.print(f"[{style}]{indicator} {message}[/{style}]")
+        else:
+            print(f"{color}{indicator} {message}{Colors.ENDC}")
     
     def validate_target(self, ip_str: str) -> Optional[str]:
-        """Validate target with safety checks."""
+        """Validate target IP with safety checks"""
         try:
             ip = ipaddress.ip_address(ip_str)
             if ip.is_loopback:
+                self.status("Loopback address detected", "warning")
                 return str(ip)
             if not ip.is_private:
-                print(f"{Colors.WARNING}[!] WARNING: {ip} is PUBLIC!{Colors.ENDC}")
-                resp = input(f"{Colors.WARNING}    Continue only if authorized [y/N]: {Colors.ENDC}")
-                if resp.lower() not in ['y', 'yes']:
+                self.status(f"WARNING: {ip} is a PUBLIC IP!", "warning")
+                if input("Continue only if authorized [y/N]: ").lower() not in ['y', 'yes']:
                     return None
             return str(ip)
         except ValueError:
-            print(f"{Colors.FAIL}[-] Invalid IP: {ip_str}{Colors.ENDC}")
+            self.status(f"Invalid IP address: {ip_str}", "error")
             return None
     
-    def check_ollama(self) -> bool:
-        """Verify Ollama is responsive."""
-        if not REQUESTS_AVAILABLE:
-            print(f"{Colors.WARNING}[!] Python 'requests' module not installed{Colors.ENDC}")
-            print(f"{Colors.WARNING}    Run: pip3 install requests{Colors.ENDC}")
-            return False
-            
-        try:
-            r = requests.get(OLLAMA_TAGS_URL, timeout=5)
-            if r.status_code == 200:
-                models = [m["name"] for m in r.json().get("models", [])]
-                if models:
-                    print(f"{Colors.OKGREEN}[+] Ollama ready with {len(models)} models{Colors.ENDC}")
-                    return True
-                else:
-                    print(f"{Colors.WARNING}[!] No models found. Run: ollama pull qwen2.5-coder:7b{Colors.ENDC}")
-                    return False
-            return False
-        except Exception as e:
-            print(f"{Colors.WARNING}[!] Ollama not running: {e}{Colors.ENDC}")
-            print(f"{Colors.WARNING}    Start with: ollama serve{Colors.ENDC}")
-            return False
-    
-    def run_tool(self, cmd: List[str], desc: str, timeout: int = 300) -> Tuple[str, bool]:
-        """Execute tool with comprehensive error handling."""
-        print(f"{Colors.OKBLUE}[*] {desc}...{Colors.ENDC}")
+    async def nmap_scan(self, target: str) -> Host:
+        """Execute Nmap scan with XML output parsing"""
+        xml_file = f"/tmp/netweave_{target.replace('.', '_')}_{os.getpid()}.xml"
         
-        try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=timeout
-            )
-            
-            output = result.stdout or ""
-            success = result.returncode == 0 or len(output) > 50
-            status = Colors.OKGREEN if success else Colors.WARNING
-            print(f"{status}[+] {desc} complete ({len(output)} bytes, code {result.returncode}){Colors.ENDC}")
-            return output, success
-            
-        except subprocess.TimeoutExpired:
-            print(f"{Colors.FAIL}[-] {desc} timed out{Colors.ENDC}")
-            return "", False
-        except FileNotFoundError:
-            print(f"{Colors.FAIL}[-] {cmd[0]} not installed{Colors.ENDC}")
-            return "", False
-        except Exception as e:
-            print(f"{Colors.FAIL}[-] {desc} failed: {e}{Colors.ENDC}")
-            return "", False
-    
-    def nmap_scan(self, target: str) -> Host:
-        """Perform structured nmap scan and parse XML."""
-        xml_file = f"nmap_{target.replace('.', '_')}.xml"
-        
-        # Clean up old file if exists
         if os.path.exists(xml_file):
             os.remove(xml_file)
         
-        # Run nmap with XML output
-        cmd = ["nmap", "-sV", "-sC", "-Pn", "--open", "-oX", xml_file, target]
-        output, success = self.run_tool(cmd, "Nmap service scan", 300)
+        cmd = [
+            "nmap", "-sV", "-sC", "-Pn", "--open", 
+            "-oX", xml_file, "--top-ports", "1000",
+            "--max-retries", "2", "--host-timeout", "5m",
+            "-T4", target
+        ]
         
-        host = Host(ip=target, hostname="", os="", services=[], open_ports=[])
+        self.status("Running Nmap Connect Scan...", "scan")
         
-        if not success or not os.path.exists(xml_file) or os.path.getsize(xml_file) < 100:
-            print(f"{Colors.WARNING}[!] Nmap XML missing or empty, falling back{Colors.ENDC}")
-            return self._fallback_scan(target)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+                if proc.returncode != 0 and stderr:
+                    self.status(f"Nmap stderr: {stderr.decode().strip()}", "warning")
+            except asyncio.TimeoutError:
+                proc.kill()
+                self.status("Nmap scan timed out, using fallback", "warning")
+                return await self.fallback_socket_scan(target)
+                
+        except FileNotFoundError:
+            self.status("Nmap not found in PATH, using fallback scanner", "warning")
+            return await self.fallback_socket_scan(target)
+        except Exception as e:
+            self.status(f"Nmap execution failed: {e}", "error")
+            return await self.fallback_socket_scan(target)
         
-        # Parse XML
+        host = Host(ip=target)
+        
+        if not os.path.exists(xml_file) or os.path.getsize(xml_file) < 100:
+            self.status("Nmap XML output missing or empty, using fallback", "warning")
+            return await self.fallback_socket_scan(target)
+        
         try:
             tree = ET.parse(xml_file)
             root = tree.getroot()
             
             for host_elem in root.findall('host'):
-                # Get hostname
                 hostnames = host_elem.find('hostnames')
                 if hostnames is not None:
                     for name in hostnames.findall('hostname'):
@@ -213,512 +207,341 @@ class NetWeave:
                             host.hostname = name.get('name')
                             break
                 
-                # Get OS info
                 os_elem = host_elem.find('os')
                 if os_elem is not None:
                     osmatch = os_elem.find('osmatch')
                     if osmatch is not None:
-                        host.os = osmatch.get('name', '')[:50]
+                        host.os = osmatch.get('name', 'Unknown')[:50]
                 
-                # Get ports
-                ports = host_elem.find('ports')
-                if ports is not None:
-                    for port in ports.findall('port'):
-                        state = port.find('state')
-                        if state is not None and state.get('state') == 'open':
-                            port_num = int(port.get('portid'))
+                ports_elem = host_elem.find('ports')
+                if ports_elem is not None:
+                    for port_elem in ports_elem.findall('port'):
+                        state_elem = port_elem.find('state')
+                        if state_elem is not None and state_elem.get('state') == 'open':
+                            port_num = int(port_elem.get('portid'))
                             host.open_ports.append(port_num)
                             
-                            service = Service(
-                                port=port_num,
-                                protocol=port.get('protocol', 'tcp'),
-                                state='open',
-                                name='unknown',
-                                version='',
-                                cpe='',
-                                scripts=[]
-                            )
+                            service = Service(port=port_num)
+                            service.protocol = port_elem.get('protocol', 'tcp')
                             
-                            svc = port.find('service')
-                            if svc is not None:
-                                service.name = svc.get('name', 'unknown')
-                                service.version = svc.get('version', '')
-                                service.cpe = svc.get('cpe', '')
-                                # Extract product info
-                                product = svc.get('product', '')
-                                if product and not service.version:
-                                    service.version = product
+                            svc_elem = port_elem.find('service')
+                            if svc_elem is not None:
+                                service.name = svc_elem.get('name', 'unknown')
+                                product = svc_elem.get('product', '')
+                                version = svc_elem.get('version', '')
+                                service.version = f"{product} {version}".strip()
+                                service.cpe = svc_elem.get('cpe', '')
+                                service.banner = svc_elem.get('extrainfo', '')
                             
-                            for script in port.findall('script'):
-                                script_id = script.get('id', '')
-                                script_out = script.get('output', '')[:100]
-                                if script_out:
-                                    service.scripts.append(f"{script_id}: {script_out}")
+                            for script in port_elem.findall('script'):
+                                script_id = script.get('id')
+                                output = script.get('output', '')
+                                if script_id and output:
+                                    service.scripts[script_id] = output[:500]
                             
                             host.services.append(service)
             
-            # If still no services, try fallback
             if not host.services:
-                print(f"{Colors.WARNING}[!] Nmap found no open ports, trying fallback scan{Colors.ENDC}")
-                return self._fallback_scan(target)
-                
-            return host
-            
+                self.status("Nmap found no open ports, validating with fallback", "warning")
+                fallback = await self.fallback_socket_scan(target)
+                if fallback.open_ports:
+                    return fallback
+                    
+        except ET.ParseError as e:
+            self.status(f"XML parsing error: {e}", "error")
+            return await self.fallback_socket_scan(target)
         except Exception as e:
-            print(f"{Colors.WARNING}[!] XML parse error: {e}, using fallback{Colors.ENDC}")
-            return self._fallback_scan(target)
-    
-    def _fallback_scan(self, target: str) -> Host:
-        """Basic TCP connect scan when nmap fails."""
-        print(f"{Colors.OKBLUE}[*] Running fallback TCP scan on common ports...{Colors.ENDC}")
-        open_ports = []
-        common_ports = [21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5432, 5900, 8080, 8443, 3000, 5000, 8000, 8888]
-        
-        def check_port(port):
+            self.status(f"Unexpected error parsing Nmap results: {e}", "error")
+            return await self.fallback_socket_scan(target)
+        finally:
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(2)
-                result = sock.connect_ex((target, port))
-                sock.close()
-                return port if result == 0 else None
+                os.remove(xml_file)
             except:
-                return None
+                pass
         
-        # Parallel port scanning
-        with ThreadPoolExecutor(max_workers=50) as executor:
-            results = list(executor.map(check_port, common_ports))
-            open_ports = [p for p in results if p is not None]
-        
-        if open_ports:
-            print(f"{Colors.OKGREEN}[+] Found {len(open_ports)} open ports: {open_ports}{Colors.ENDC}")
-        else:
-            print(f"{Colors.WARNING}[!] No open ports found on common ports{Colors.ENDC}")
-        
-        services = []
-        for port in open_ports:
-            name = {
-                21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns', 80: 'http', 
-                110: 'pop3', 139: 'netbios', 143: 'imap', 443: 'https', 445: 'smb',
-                993: 'imaps', 995: 'pop3s', 1723: 'pptp', 3306: 'mysql', 3389: 'rdp', 
-                5432: 'postgresql', 5900: 'vnc', 8080: 'http-proxy', 8443: 'https-alt',
-                3000: 'http', 5000: 'http', 8000: 'http', 8888: 'http'
-            }.get(port, 'unknown')
-            services.append(Service(port=port, protocol='tcp', state='open', name=name, 
-                                   version='', cpe='', scripts=[]))
-        
-        return Host(ip=target, hostname='', os='', services=services, open_ports=open_ports)
+        self.status(f"Nmap scan complete: {len(host.services)} services identified", "success")
+        return host
     
-    def web_scan(self, host: Host) -> Dict:
-        """Scan web services with multiple tools."""
-        results = {}
+    async def fallback_socket_scan(self, target: str) -> Host:
+        """Fallback raw socket scanner for top 20 CTF ports"""
+        self.status("Initiating fallback TCP socket probe...", "scan")
         
-        web_services = [s for s in host.services if s.name in ['http', 'https', 'http-proxy']]
+        host = Host(ip=target)
+        open_ports = []
         
-        if not web_services:
-            return results
+        semaphore = asyncio.Semaphore(Config.CONCURRENT_SCANS)
         
-        for svc in web_services:
-            port = svc.port
-            proto = 'https' if svc.name == 'https' or port in [443, 8443] else 'http'
-            url = f"{proto}://{host.ip}:{port}" if port not in [80, 443] else f"{proto}://{host.ip}"
-            
-            print(f"{Colors.OKBLUE}[*] Scanning web service on port {port} ({url}){Colors.ENDC}")
-            
-            # Gobuster
-            wordlists = [
-                "/usr/share/wordlists/dirb/common.txt",
-                "/usr/share/seclists/Discovery/Web-Content/common.txt",
-                "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
-                "/usr/share/wordlists/dirb/small.txt"
-            ]
-            wordlist = next((w for w in wordlists if os.path.exists(w)), None)
-            
-            if wordlist:
-                cmd = ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "-t", "50", "-k"]
-                out, _ = self.run_tool(cmd, f"Gobuster {port}", 180)
-                results[f"gobuster_{port}"] = out
-            
-            # Nikto
-            cmd = ["nikto", "-h", url, "-maxtime", "60", "-C", "all"]
-            out, _ = self.run_tool(cmd, f"Nikto {port}", 120)
-            results[f"nikto_{port}"] = out
+        async def probe_port(port: int) -> Optional[int]:
+            async with semaphore:
+                try:
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(target, port),
+                        timeout=2.0
+                    )
+                    writer.close()
+                    await writer.wait_closed()
+                    return port
+                except:
+                    return None
         
-        return results
-    
-    def summon_wizard(self, model: str, scan_summary: str) -> Optional[Dict]:
-        """Query single AI model with unified timeout."""
-        if not REQUESTS_AVAILABLE:
-            return None
+        tasks = [probe_port(p) for p in Config.TOP_CTF_PORTS]
+        results = await asyncio.gather(*tasks)
+        open_ports = sorted([p for p in results if p is not None])
         
-        prompt = f"""You are a CTF penetration testing expert. Analyze this scan and provide ONE best attack command.
-
-SCAN:
-{scan_summary}
-
-Respond ONLY with:
-VULN: [brief vulnerability name]
-[CMD] [exact command to run] [CMD]
-CONFIDENCE: [High/Medium/Low]"""
-
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 256}
+        if not open_ports:
+            self.status("No open ports detected on fallback scan", "warning")
+            return host
+        
+        self.status(f"Fallback scan found {len(open_ports)} open ports: {open_ports}", "success")
+        host.open_ports = open_ports
+        
+        service_map = {
+            21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns',
+            80: 'http', 88: 'kerberos', 110: 'pop3', 111: 'rpcbind',
+            135: 'msrpc', 139: 'netbios', 143: 'imap', 443: 'https',
+            445: 'smb', 464: 'kpasswd', 993: 'imaps', 995: 'pop3s',
+            3306: 'mysql', 3389: 'rdp', 5985: 'winrm'
         }
         
-        try:
-            r = requests.post(OLLAMA_URL, json=payload, timeout=AI_TIMEOUT)
-            
-            if r.status_code == 200:
-                text = r.json().get('response', '')
-                
-                # Extract command
-                cmd_match = re.search(r'\[CMD\]\s*(.*?)\s*\[CMD\]', text, re.DOTALL)
-                cmd = cmd_match.group(1).strip() if cmd_match else None
-                
-                # Extract confidence
-                conf_match = re.search(r'CONFIDENCE:\s*(High|Medium|Low)', text, re.I)
-                conf = conf_match.group(1).lower() if conf_match else "medium"
-                
-                # Extract vuln
-                vuln_match = re.search(r'VULN:\s*(.+?)(?:\n|$)', text, re.I)
-                vuln = vuln_match.group(1).strip() if vuln_match else "Unknown"
-                
-                if cmd and len(cmd) > 5:
-                    return {
-                        "model": model,
-                        "command": cmd,
-                        "vuln": vuln,
-                        "confidence": conf,
-                        "raw": text[:200]
-                    }
-        except requests.exceptions.Timeout:
-            print(f"{Colors.WARNING}  ⚠ {model}: Timed out after {AI_TIMEOUT}s{Colors.ENDC}")
-        except Exception as e:
-            print(f"{Colors.WARNING}  ⚠ {model}: Failed with exception {e}{Colors.ENDC}")
+        for port in open_ports:
+            svc = Service(
+                port=port,
+                name=service_map.get(port, 'unknown'),
+                state='open'
+            )
+            host.services.append(svc)
         
-        return None
+        return host
     
-    def council_deliberation(self, host: Host, web_results: Dict) -> Tuple[str, List[str]]:
-        """The Council of Wizards convenes to decide the attack path."""
-        print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.BOLD}  ★ THE COUNCIL OF WIZARDS CONVENES ★{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
+    async def query_venice_ai(self, host: Host) -> Dict[str, Any]:
+        """Query Venice AI for attack path analysis"""
+        if not ASYNC_HTTP or not Config.VENICE_API_KEY:
+            self.status("AI analysis skipped - no API access", "warning")
+            return self._generate_local_analysis(host)
         
-        # Prepare scan summary
-        summary = f"Target: {host.ip}\n"
-        summary += f"Open Ports: {', '.join(map(str, host.open_ports))}\n\n"
+        services_text = "\n".join([
+            f"Port {s.port}/{s.protocol}: {s.name} {s.version}"
+            for s in host.services
+        ])
+        
+        prompt = f"""Analyze this CTF target and respond ONLY with valid JSON.
+
+Target: {host.ip}
+Operating System: {host.os or "Unknown"}
+Open Services:
+{services_text}
+
+Respond with exactly this JSON structure:
+{{
+  "target": "{host.ip}",
+  "operating_system": "Linux|Windows|Unknown",
+  "ports": [
+    {{"port": 80, "service": "http", "version": "Apache 2.4.41", "notes": "Potential exploit vector"}}
+  ],
+  "recommended_vector": {{
+    "vector_name": "string",
+    "target_port": 80,
+    "vulnerability_type": "string",
+    "technical_summary": "string"
+  }}
+}}
+
+Do not include any markdown formatting, explanations, or text outside the JSON object."""
+
+        headers = {
+            "Authorization": f"Bearer {Config.VENICE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": Config.AI_MODEL,
+            "messages": [
+                {"role": "system", "content": "You are a CTF penetration testing expert. Output only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 800
+        }
+        
+        self.status("Transmitting telemetry to Venice AI...", "scan")
+        
+        try:
+            async with self.session.post(
+                Config.VENICE_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=Config.AI_TIMEOUT)
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    self.status(f"API error {resp.status}: {text[:100]}", "error")
+                    return self._generate_local_analysis(host)
+                
+                data = await resp.json()
+                content = data['choices'][0]['message']['content']
+                
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(0))
+                        self.status("AI analysis received and parsed", "success")
+                        return result
+                    except json.JSONDecodeError as e:
+                        self.status(f"JSON parse error: {e}", "error")
+                        return self._generate_local_analysis(host)
+                else:
+                    self.status("No JSON found in AI response", "warning")
+                    return self._generate_local_analysis(host)
+                    
+        except asyncio.TimeoutError:
+            self.status("AI analysis timed out", "warning")
+            return self._generate_local_analysis(host)
+        except Exception as e:
+            self.status(f"AI query failed: {e}", "error")
+            return self._generate_local_analysis(host)
+    
+    def _generate_local_analysis(self, host: Host) -> Dict[str, Any]:
+        """Generate analysis locally when AI is unavailable"""
+        self.status("Generating local attack pattern analysis...", "info")
+        
+        ports_data = []
+        recommended_port = None
+        recommended_service = None
         
         for svc in host.services:
-            summary += f"Port {svc.port}/{svc.protocol}: {svc.name}"
-            if svc.version:
-                summary += f" ({svc.version})"
-            if svc.scripts:
-                summary += f" | {svc.scripts[0][:80]}"
-            summary += "\n"
-        
-        # Summarize web results
-        for key, val in web_results.items():
-            if val and len(val) > 100:
-                lines = val.strip().split('\n')[:5]
-                summary += f"\n{key}:\n" + '\n'.join(lines) + "\n"
-        
-        # Get available models
-        available_models = []
-        try:
-            r = requests.get(OLLAMA_TAGS_URL, timeout=5)
-            if r.status_code == 200:
-                available_models = [m["name"] for m in r.json().get("models", [])]
-        except:
-            pass
-        
-        # Filter to council members
-        wizards_to_summon = {k: v for k, v in COUNCIL.items() if k in available_models}
-        
-        if not wizards_to_summon:
-            print(f"{Colors.WARNING}[!] No council models available, using built-in patterns{Colors.ENDC}")
-            return self._pattern_based_attacks(host)
-        
-        print(f"{Colors.OKBLUE}[*] Summoning {len(wizards_to_summon)} wizards (timeout: {AI_TIMEOUT}s each)...{Colors.ENDC}\n")
-        
-        responses = []
-        with ThreadPoolExecutor(max_workers=len(wizards_to_summon)) as executor:
-            future_to_model = {
-                executor.submit(self.summon_wizard, model, summary): (model, info)
-                for model, info in wizards_to_summon.items()
+            port_info = {
+                "port": svc.port,
+                "service": svc.name,
+                "version": svc.version,
+                "notes": ""
             }
             
-            for future in as_completed(future_to_model):
-                model, info = future_to_model[future]
-                try:
-                    result = future.result()
-                    if result:
-                        result["role"] = info["role"]
-                        result["weight"] = info["weight"]
-                        responses.append(result)
-                        print(f"{Colors.OKGREEN}  ✓ {info['role']}: {result['vuln']} [{result['confidence']}]{Colors.ENDC}")
-                    else:
-                        print(f"{Colors.WARNING}  ⚠ {info['role']}: No response{Colors.ENDC}")
-                except Exception as e:
-                    print(f"{Colors.FAIL}  ✗ {info['role']}: Failed{Colors.ENDC}")
-        
-        if not responses:
-            print(f"{Colors.WARNING}[!] Council failed, using pattern matching{Colors.ENDC}")
-            return self._pattern_based_attacks(host)
-        
-        # Vote on commands
-        command_votes = {}
-        for r in responses:
-            cmd = r["command"]
-            norm_cmd = re.sub(r'\s+', ' ', cmd.lower().strip())
-            tool = norm_cmd.split()[0] if norm_cmd else "unknown"
+            if svc.name == 'http' and not recommended_port:
+                port_info["notes"] = "Web application - check for default pages, directory traversal"
+                recommended_port = svc.port
+                recommended_service = 'http'
+            elif svc.name == 'smb' and not recommended_port:
+                port_info["notes"] = "SMB service - check for null sessions, anonymous shares"
+                recommended_port = svc.port
+                recommended_service = 'smb'
+            elif svc.name == 'ssh' and not recommended_port:
+                port_info["notes"] = "SSH service - check for weak credentials, outdated versions"
+                recommended_port = svc.port
+                recommended_service = 'ssh'
+            elif svc.name == 'ftp' and not recommended_port:
+                port_info["notes"] = "FTP service - check for anonymous access"
+                recommended_port = svc.port
+                recommended_service = 'ftp'
             
-            key = f"{tool}:{hash(norm_cmd) % 10000}"
-            
-            if key not in command_votes:
-                command_votes[key] = {
-                    "command": cmd,
-                    "votes": 0,
-                    "weight": 0,
-                    "vulns": [],
-                    "supporters": []
-                }
-            
-            weight = r["weight"] * {"high": 3, "medium": 2, "low": 1}.get(r["confidence"], 1)
-            command_votes[key]["votes"] += 1
-            command_votes[key]["weight"] += weight
-            command_votes[key]["vulns"].append(r["vuln"])
-            command_votes[key]["supporters"].append(r["role"])
+            ports_data.append(port_info)
         
-        # Sort by weight
-        sorted_commands = sorted(command_votes.values(), key=lambda x: x["weight"], reverse=True)
+        if not recommended_port and host.open_ports:
+            recommended_port = host.open_ports[0]
+            recommended_service = host.services[0].name if host.services else "unknown"
         
-        # Display results
-        print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.BOLD}  DELIBERATION RESULTS{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
+        os_guess = "Unknown"
+        if any(s.name in ['smb', 'winrm', 'rdp', 'msrpc'] for s in host.services):
+            os_guess = "Windows"
+        elif any(s.name in ['ssh', 'nfs', 'rpcbind'] for s in host.services):
+            os_guess = "Linux"
         
-        for i, opt in enumerate(sorted_commands[:3], 1):
-            medal = ["🥇", "🥈", "🥉"][i-1]
-            color = [Colors.OKGREEN, Colors.WARNING, Colors.OKBLUE][i-1]
-            
-            print(f"{color}  {medal} Rank {i}: {opt['vulns'][0]}{Colors.ENDC}")
-            print(f"      Command: {opt['command'][:70]}{'...' if len(opt['command']) > 70 else ''}")
-            print(f"      Supported by: {', '.join(set(opt['supporters']))} (weight: {opt['weight']})")
-            print()
-        
-        primary = sorted_commands[0]["command"] if sorted_commands else f"nmap -sC -sV {host.ip}"
-        alternatives = [c["command"] for c in sorted_commands[1:3]] if len(sorted_commands) > 1 else []
-        
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.OKGREEN}  ★ PRIMARY ATTACK VECTOR SELECTED ★{Colors.ENDC}")
-        print(f"{Colors.OKGREEN}  {primary}{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
-        
-        return primary, alternatives
+        return {
+            "target": host.ip,
+            "operating_system": os_guess,
+            "ports": ports_data,
+            "recommended_vector": {
+                "vector_name": f"{recommended_service.upper()}_Initial_Access" if recommended_service else "Unknown",
+                "target_port": recommended_port or 0,
+                "vulnerability_type": "Configuration/Enumeration",
+                "technical_summary": f"Initial foothold via {recommended_service} service enumeration and credential testing" if recommended_service else "Manual enumeration required"
+            }
+        }
     
-    def _pattern_based_attacks(self, host: Host) -> Tuple[str, List[str]]:
-        """Fallback when AI fails - use built-in patterns."""
-        print(f"{Colors.OKBLUE}[*] Using built-in attack patterns{Colors.ENDC}")
+    async def save_results(self, data: Dict[str, Any]):
+        """Save structured JSON to disk"""
+        filename = f"netweave_{self.target.replace('.', '_')}.json"
         
-        commands = []
-        
-        for svc in host.services:
-            patterns = ATTACK_PATTERNS.get(svc.name, {})
-            if patterns:
-                if svc.name == "http":
-                    cmd = f"gobuster dir -u http://{host.ip}:{svc.port}/ -w /usr/share/wordlists/dirb/common.txt -t 50"
-                elif svc.name == "https":
-                    cmd = f"gobuster dir -u https://{host.ip}:{svc.port}/ -w /usr/share/wordlists/dirb/common.txt -t 50 -k"
-                elif svc.name == "ssh":
-                    cmd = f"hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://{host.ip}"
-                elif svc.name == "ftp":
-                    cmd = f"hydra -l anonymous -p anonymous ftp://{host.ip}"
-                elif svc.name == "smb":
-                    cmd = f"enum4linux -a {host.ip}"
-                else:
-                    cmd = f"nmap -sC -sV -p {svc.port} {host.ip}"
+        try:
+            with open(filename, 'w') as f:
+                json.dump(data, f, indent=2)
+            self.status(f"Attack vector data serialized: {filename}", "success")
+            
+            if self.console:
+                self.console.print(f"\n[bold cyan]Target:[/bold cyan] {data['target']}")
+                self.console.print(f"[bold cyan]OS:[/bold cyan] {data['operating_system']}")
+                self.console.print(f"[bold cyan]Primary Vector:[/bold cyan] {data['recommended_vector']['vector_name']} on port {data['recommended_vector']['target_port']}")
+            else:
+                print(f"\n{Colors.cyan('Target:')} {data['target']}")
+                print(f"{Colors.cyan('OS:')} {data['operating_system']}")
+                print(f"{Colors.cyan('Primary Vector:')} {data['recommended_vector']['vector_name']} on port {data['recommended_vector']['target_port']}")
                 
-                commands.append(cmd)
-        
-        if not commands:
-            commands = [f"nmap -sC -sV -p- {host.ip}"]
-        
-        primary = commands[0]
-        alternatives = commands[1:3]
-        
-        print(f"{Colors.OKGREEN}[+] Pattern-based primary: {primary}{Colors.ENDC}")
-        
-        return primary, alternatives
+        except Exception as e:
+            self.status(f"Failed to save results: {e}", "error")
+            print(json.dumps(data, indent=2))
     
-    def generate_payloads(self, primary: str, alternatives: List[str], target: str, dry_run: bool):
-        """Generate execution scripts in multiple formats."""
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = f"netweave_{target.replace('.', '_')}_{timestamp}"
-        
-        scripts = []
-        
-        # PowerShell
-        ps_file = f"{base_name}.ps1"
-        with open(ps_file, "w") as f:
-            f.write(f"# NetWeave Execution Payload\n")
-            f.write(f"# Target: {target}\n")
-            f.write(f"# Generated: {datetime.now().isoformat()}\n\n")
-            f.write("$ErrorActionPreference = 'Continue'\n\n")
-            
-            cmds = [primary] + alternatives
-            for i, cmd in enumerate(cmds, 1):
-                safe = cmd.replace("'", "''")
-                f.write(f"Write-Host '[{i}/{len(cmds)}] {safe}' -ForegroundColor Cyan\n")
-                if dry_run:
-                    f.write(f"Write-Host '[DRY RUN] Would execute' -ForegroundColor Yellow\n")
-                else:
-                    f.write(f"Invoke-Expression '{safe}'\n")
-                f.write("Write-Host ''\n")
-            
-            f.write("Write-Host '[+] NetWeave execution complete' -ForegroundColor Green\n")
-        
-        scripts.append(ps_file)
-        print(f"{Colors.OKGREEN}[+] PowerShell: ./{ps_file}{Colors.ENDC}")
-        
-        # Bash
-        sh_file = f"{base_name}.sh"
-        with open(sh_file, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write(f"# NetWeave Execution Payload\n")
-            f.write(f"# Target: {target}\n")
-            f.write(f"# Generated: {datetime.now().isoformat()}\n\n")
-            
-            cmds = [primary] + alternatives
-            for i, cmd in enumerate(cmds, 1):
-                f.write(f"echo '[{i}/{len(cmds)}] {cmd}'\n")
-                if dry_run:
-                    f.write(f"echo '[DRY RUN] Would execute: {cmd}'\n")
-                else:
-                    f.write(f"{cmd}\n")
-                f.write("echo ''\n")
-            
-            f.write("echo '[+] NetWeave execution complete'\n")
-        
-        os.chmod(sh_file, 0o755)
-        scripts.append(sh_file)
-        print(f"{Colors.OKGREEN}[+] Bash: ./{sh_file}{Colors.ENDC}")
-        
-        # Python
-        py_file = f"{base_name}_exec.py"
-        with open(py_file, "w") as f:
-            f.write("#!/usr/bin/env python3\n")
-            f.write(f"# NetWeave Execution Payload\n")
-            f.write(f"# Target: {target}\n")
-            f.write(f"# Generated: {datetime.now().isoformat()}\n\n")
-            f.write("import subprocess\nimport sys\n\n")
-            
-            cmds = [primary] + alternatives
-            for i, cmd in enumerate(cmds, 1):
-                f.write(f"print('[{i}/{len(cmds)}] {cmd}')\n")
-                if dry_run:
-                    f.write(f"print('[DRY RUN] Would execute')\n")
-                else:
-                    f.write(f"subprocess.run({repr(cmd.split())}, capture_output=False)\n")
-                f.write("print()\n")
-            
-            f.write("print('[+] NetWeave execution complete')\n")
-        
-        os.chmod(py_file, 0o755)
-        scripts.append(py_file)
-        print(f"{Colors.OKGREEN}[+] Python: ./{py_file}{Colors.ENDC}")
-        
-        # JSON summary
-        json_file = f"{base_name}.json"
-        with open(json_file, "w") as f:
-            json.dump({
-                "target": target,
-                "timestamp": datetime.now().isoformat(),
-                "primary_attack": primary,
-                "alternatives": alternatives,
-                "scripts": scripts,
-                "services_found": len(self.host.services) if self.host else 0
-            }, f, indent=2)
-        
-        print(f"{Colors.OKGREEN}[+] Summary: ./{json_file}{Colors.ENDC}")
-        
-        return scripts
-    
-    def run(self, args):
-        """Main execution flow."""
+    async def run(self, target: str):
+        """Main execution pipeline"""
         self.banner()
         
-        # Validate target
-        target = args.target or input(f"{Colors.OKBLUE}[?] Target IP: {Colors.ENDC}").strip()
-        target = self.validate_target(target)
-        if not target:
+        validated = self.validate_target(target)
+        if not validated:
             sys.exit(1)
+        self.target = validated
         
-        self.target = target
+        self.status(f"Target acquired: {self.target}", "info")
         
-        # Check Ollama
-        ollama_ready = self.check_ollama()
+        if ASYNC_HTTP:
+            self.session = aiohttp.ClientSession()
         
-        # Reconnaissance
-        print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.BOLD}  PHASE 1: RECONNAISSANCE{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
-        
-        host = self.nmap_scan(target)
-        self.host = host
-        
-        print(f"\n{Colors.OKGREEN}[+] Discovered {len(host.services)} services:{Colors.ENDC}")
-        if host.services:
-            for svc in host.services:
-                ver = f" ({svc.version})" if svc.version else ""
-                print(f"    • Port {svc.port}/{svc.protocol}: {svc.name}{ver}")
-        else:
-            print(f"    {Colors.WARNING}No services found - target may be down or filtered{Colors.ENDC}")
-        
-        # Web scanning
-        web_results = self.web_scan(host)
-        
-        # AI Analysis
-        print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.BOLD}  PHASE 2: COUNCIL DELIBERATION{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
-        
-        if ollama_ready:
-            primary, alternatives = self.council_deliberation(host, web_results)
-        else:
-            primary, alternatives = self._pattern_based_attacks(host)
-        
-        # Payload Generation
-        print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.BOLD}  PHASE 3: PAYLOAD GENERATION{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
-        
-        scripts = self.generate_payloads(primary, alternatives, target, args.dry_run)
-        
-        # Summary
-        print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-        print(f"{Colors.BOLD}  ★ NETWEAVE COMPLETE ★{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
-        
-        print(f"{Colors.OKCYAN}Generated files:{Colors.ENDC}")
-        for s in scripts:
-            print(f"  • {s}")
-        print(f"\n{Colors.OKCYAN}Quick commands:{Colors.ENDC}")
-        print(f"  Review:   cat {scripts[-1]}")
-        print(f"  Execute:  {scripts[1]}  # Bash script")
-        print()
+        try:
+            self.status("Phase 1: Network Reconnaissance", "info")
+            self.host = await self.nmap_scan(self.target)
+            
+            if not self.host.services:
+                self.status("No services discovered - target may be filtered", "warning")
+                return
+            
+            web_count = len([s for s in self.host.services if s.name in ['http', 'https']])
+            self.status(f"Web Targets Isolated: {web_count}", "info")
+            
+            self.status("Phase 2: Attack Vector Correlation", "info")
+            analysis = await self.query_venice_ai(self.host)
+            
+            self.status("Phase 3: Data Packaging", "info")
+            await self.save_results(analysis)
+            
+            self.status("Reconnaissance complete - data ready for Sectumsempra", "success")
+            
+        finally:
+            if self.session:
+                await self.session.close()
 
 def main():
-    parser = argparse.ArgumentParser(description='NetWeave v8.1 - Council of Wizards Edition')
-    parser.add_argument('-t', '--target', help='Target IP address')
-    parser.add_argument('--dry-run', action='store_true', help='Generate scripts without execution')
-    parser.add_argument('--resume', action='store_true', help='Resume previous session')
+    parser = argparse.ArgumentParser(
+        description='NetWeave v9.0 - Cyan Engine - CTF Reconnaissance Suite',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Environment Variables:
+  VENICE_API_KEY    - API key for Venice AI integration
+  VENICE_API_URL    - Venice API endpoint (default: https://api.venice.ai/api/v1/chat/completions)
+  VENICE_MODEL      - Model to use (default: default)
+        """
+    )
+    parser.add_argument('target', help='Target IP address')
+    parser.add_argument('--no-ai', action='store_true', help='Skip AI analysis, use local heuristics only')
     args = parser.parse_args()
     
-    nw = NetWeave()
-    nw.run(args)
+    if args.no_ai:
+        os.environ['VENICE_API_KEY'] = ''
+    
+    try:
+        asyncio.run(NetWeave().run(args.target))
+    except KeyboardInterrupt:
+        print(f"\n{Colors.yellow('[!] Operation cancelled by user')}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"{Colors.red(f'[-] Fatal error: {e}')}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
